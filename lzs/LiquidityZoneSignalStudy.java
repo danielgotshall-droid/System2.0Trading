@@ -13,8 +13,17 @@ import com.motivewave.platform.sdk.common.desc.*;
 import com.motivewave.platform.sdk.draw.Label;
 import com.motivewave.platform.sdk.study.*;
 
+import study_examples.lzs.context.LzsContextConfig;
+import study_examples.lzs.context.LzsContextEngine;
+import study_examples.lzs.context.LzsContextResult;
+import study_examples.lzs.context.LzsContextSnapshot;
+import study_examples.lzs.context.LzsReferenceResolver;
+import study_examples.lzs.context.DayTypeContextProvider;
 import study_examples.lzs.engine.LzsEngine;
 import study_examples.lzs.model.*;
+import study_examples.lzs.session.InitialBalanceTracker;
+import study_examples.lzs.session.OpeningRangeTracker;
+import study_examples.lzs.session.RthSessionTracker;
 import study_examples.lzs.util.LzsFormatUtils;
 
 /**
@@ -58,7 +67,25 @@ public class LiquidityZoneSignalStudy extends Study {
     LONG_REMAINING_PCT,
     SHORT_REMAINING_PCT,
     LONG_PATH_CLEAR,
-    SHORT_PATH_CLEAR
+    SHORT_PATH_CLEAR,
+    SESSION_OPEN,
+    PRIOR_DAY_HIGH,
+    PRIOR_DAY_LOW,
+    PRIOR_DAY_CLOSE,
+    OVERNIGHT_HIGH,
+    OVERNIGHT_LOW,
+    SESSION_VWAP,
+    OR_HIGH,
+    OR_LOW,
+    OR_COMPLETE,
+    IB_HIGH,
+    IB_LOW,
+    IB_COMPLETE,
+    PRIOR_VALUE_AREA_HIGH,
+    PRIOR_VALUE_AREA_LOW,
+    PRIOR_POC,
+    LONG_CONTEXT_SCORE,
+    SHORT_CONTEXT_SCORE
   }
 
   private enum Signals {
@@ -113,10 +140,74 @@ public class LiquidityZoneSignalStudy extends Study {
   private static final String OPEN_MODE_EVAL_INTERVAL_MS = "OPEN_MODE_EVAL_INTERVAL_MS";
   private static final String EXEC_REFRESH_MIN_INTERVAL_MS = "EXEC_REFRESH_MIN_INTERVAL_MS";
 
+  private static final String ENABLE_CONTEXT = "ENABLE_CONTEXT";
+  private static final String ENABLE_STRUCTURAL_CONTEXT = "ENABLE_STRUCTURAL_CONTEXT";
+  private static final String ENABLE_VWAP_CONTEXT = "ENABLE_VWAP_CONTEXT";
+  private static final String ENABLE_IB_CONTEXT = "ENABLE_IB_CONTEXT";
+  private static final String STRUCTURAL_PROX_TICKS = "STRUCTURAL_PROX_TICKS";
+  private static final String VWAP_PROX_TICKS = "VWAP_PROX_TICKS";
+  private static final String IB_PROX_TICKS = "IB_PROX_TICKS";
+  private static final String IB_MINUTES = "IB_MINUTES";
+  private static final String SHOW_CONTEXT_ON_HUD = "SHOW_CONTEXT_ON_HUD";
+  private static final String SHOW_CONTEXT_REASONS = "SHOW_CONTEXT_REASONS";
+  private static final String ENABLE_OVERNIGHT_CONTEXT = "ENABLE_OVERNIGHT_CONTEXT";
+  private static final String ENABLE_OR_CONTEXT = "ENABLE_OR_CONTEXT";
+  private static final String ENABLE_VALUE_AREA_CONTEXT = "ENABLE_VALUE_AREA_CONTEXT";
+  private static final String OVERNIGHT_PROX_TICKS = "OVERNIGHT_PROX_TICKS";
+  private static final String OR_PROX_TICKS = "OR_PROX_TICKS";
+  private static final String VALUE_AREA_PROX_TICKS = "VALUE_AREA_PROX_TICKS";
+  private static final String OR_MINUTES = "OR_MINUTES";
+  private static final String USE_MANUAL_LEVEL_FALLBACK = "USE_MANUAL_LEVEL_FALLBACK";
+  private static final String PREFER_MANUAL_LEVELS = "PREFER_MANUAL_LEVELS";
+  private static final String SHOW_REFERENCE_SOURCES_ON_HUD = "SHOW_REFERENCE_SOURCES_ON_HUD";
+  private static final String SHOW_DEVELOPING_REFS_ON_HUD = "SHOW_DEVELOPING_REFS_ON_HUD";
+  private static final String MANUAL_SESSION_OPEN_ENABLED = "MANUAL_SESSION_OPEN_ENABLED";
+  private static final String MANUAL_SESSION_OPEN = "MANUAL_SESSION_OPEN";
+  private static final String MANUAL_PRIOR_DAY_LEVELS_ENABLED = "MANUAL_PRIOR_DAY_LEVELS_ENABLED";
+  private static final String MANUAL_PRIOR_DAY_HIGH = "MANUAL_PRIOR_DAY_HIGH";
+  private static final String MANUAL_PRIOR_DAY_LOW = "MANUAL_PRIOR_DAY_LOW";
+  private static final String MANUAL_PRIOR_DAY_CLOSE = "MANUAL_PRIOR_DAY_CLOSE";
+  private static final String MANUAL_OVERNIGHT_LEVELS_ENABLED = "MANUAL_OVERNIGHT_LEVELS_ENABLED";
+  private static final String MANUAL_OVERNIGHT_HIGH = "MANUAL_OVERNIGHT_HIGH";
+  private static final String MANUAL_OVERNIGHT_LOW = "MANUAL_OVERNIGHT_LOW";
+  private static final String MANUAL_OPENING_RANGE_LEVELS_ENABLED = "MANUAL_OPENING_RANGE_LEVELS_ENABLED";
+  private static final String MANUAL_OPENING_RANGE_HIGH = "MANUAL_OPENING_RANGE_HIGH";
+  private static final String MANUAL_OPENING_RANGE_LOW = "MANUAL_OPENING_RANGE_LOW";
+  private static final String MANUAL_INITIAL_BALANCE_LEVELS_ENABLED = "MANUAL_INITIAL_BALANCE_LEVELS_ENABLED";
+  private static final String MANUAL_INITIAL_BALANCE_HIGH = "MANUAL_INITIAL_BALANCE_HIGH";
+  private static final String MANUAL_INITIAL_BALANCE_LOW = "MANUAL_INITIAL_BALANCE_LOW";
+  private static final String MANUAL_VALUE_AREA_LEVELS_ENABLED = "MANUAL_VALUE_AREA_LEVELS_ENABLED";
+  private static final String MANUAL_PRIOR_VALUE_AREA_HIGH = "MANUAL_PRIOR_VALUE_AREA_HIGH";
+  private static final String MANUAL_PRIOR_VALUE_AREA_LOW = "MANUAL_PRIOR_VALUE_AREA_LOW";
+  private static final String MANUAL_PRIOR_POC = "MANUAL_PRIOR_POC";
+
+  private static final String ENABLE_DAY_TYPE_CONTEXT = "ENABLE_DAY_TYPE_CONTEXT";
+  private static final String DAY_TYPE_REFRESH_INTERVAL_MS = "DAY_TYPE_REFRESH_INTERVAL_MS";
+  private static final String DAY_TYPE_RECENT_LOOKBACK_SESSIONS = "DAY_TYPE_RECENT_LOOKBACK_SESSIONS";
+  private static final String DAY_TYPE_SCORE_WEIGHT = "DAY_TYPE_SCORE_WEIGHT";
+  private static final String DAY_TYPE_MIN_CONFIDENCE = "DAY_TYPE_MIN_CONFIDENCE";
+  private static final String SHOW_DAY_TYPE_ON_HUD = "SHOW_DAY_TYPE_ON_HUD";
+  private static final String SHOW_DAY_TYPE_DEBUG = "SHOW_DAY_TYPE_DEBUG";
+  private static final String USE_MANUAL_DAY_TYPE_AID = "USE_MANUAL_DAY_TYPE_AID";
+  private static final String PREFER_MANUAL_DAY_TYPE_AID = "PREFER_MANUAL_DAY_TYPE_AID";
+  private static final String MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_RANGE = "MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_RANGE";
+  private static final String MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_VOLUME = "MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_VOLUME";
+  private static final String MANUAL_DAY_TYPE_ATR_LIKE_RANGE = "MANUAL_DAY_TYPE_ATR_LIKE_RANGE";
+  private static final String MANUAL_DAY_TYPE_PRIOR_SESSION_CLOSE = "MANUAL_DAY_TYPE_PRIOR_SESSION_CLOSE";
+
   private final Deque<LzsSnapshot> snapshotWindow = new ArrayDeque<LzsSnapshot>();
   private final LzsEngine engine = new LzsEngine();
+  private final LzsContextEngine contextEngine = new LzsContextEngine();
+  private final LzsReferenceResolver referenceResolver = new LzsReferenceResolver();
+  private final RthSessionTracker sessionTracker = new RthSessionTracker();
+  private final InitialBalanceTracker ibTracker = new InitialBalanceTracker();
+  private final OpeningRangeTracker orTracker = new OpeningRangeTracker();
+  private final DayTypeContextProvider dayTypeProvider = new DayTypeContextProvider();
   private final LzsSideState longState = new LzsSideState(LzsSide.LONG);
   private final LzsSideState shortState = new LzsSideState(LzsSide.SHORT);
+
+  private LzsContextResult longContext = new LzsContextResult();
+  private LzsContextResult shortContext = new LzsContextResult();
 
   private Instrument observedInstrument;
   private DOMListener domListener;
@@ -189,6 +280,78 @@ public class LiquidityZoneSignalStudy extends Study {
     hud.addRow(new IntegerDescriptor(HUD_OFFSET_TICKS, "HUD Offset (ticks)", 12, 0, 200, 1));
     hud.addRow(new IntegerDescriptor(HUD_REFRESH_INTERVAL_MS, "HUD Refresh Interval (ms)", 250, 0, 5000, 10));
 
+    SettingTab ctxTab = sd.addTab("Phase 4 Context");
+    SettingGroup ctxGeneral = ctxTab.addGroup("General");
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_CONTEXT, "Enable Context Layer", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_STRUCTURAL_CONTEXT, "Enable Structural References", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_VWAP_CONTEXT, "Enable Session VWAP Context", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_OVERNIGHT_CONTEXT, "Enable Overnight Context", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_IB_CONTEXT, "Enable Initial Balance Context", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_OR_CONTEXT, "Enable Opening Range Context", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_VALUE_AREA_CONTEXT, "Enable Prior Value Area Context", true));
+    ctxGeneral.addRow(new BooleanDescriptor(ENABLE_DAY_TYPE_CONTEXT, "Enable Day-Type Context", true));
+    ctxGeneral.addRow(new IntegerDescriptor(OR_MINUTES, "Opening Range Minutes", 5, 1, 60, 1));
+    ctxGeneral.addRow(new IntegerDescriptor(IB_MINUTES, "Initial Balance Minutes", 60, 5, 180, 5));
+
+    SettingGroup ctxDistance = ctxTab.addGroup("Proximity");
+    ctxDistance.addRow(new IntegerDescriptor(STRUCTURAL_PROX_TICKS, "Structural Ref Proximity (ticks)", 8, 0, 50, 1));
+    ctxDistance.addRow(new IntegerDescriptor(OVERNIGHT_PROX_TICKS, "Overnight Ref Proximity (ticks)", 8, 0, 50, 1));
+    ctxDistance.addRow(new IntegerDescriptor(VWAP_PROX_TICKS, "VWAP Proximity (ticks)", 8, 0, 50, 1));
+    ctxDistance.addRow(new IntegerDescriptor(OR_PROX_TICKS, "Opening Range Edge Proximity (ticks)", 6, 0, 50, 1));
+    ctxDistance.addRow(new IntegerDescriptor(IB_PROX_TICKS, "IB Edge Proximity (ticks)", 6, 0, 50, 1));
+    ctxDistance.addRow(new IntegerDescriptor(VALUE_AREA_PROX_TICKS, "Value Area / POC Proximity (ticks)", 6, 0, 50, 1));
+
+    SettingGroup ctxDayType = ctxTab.addGroup("Day Type");
+    ctxDayType.addRow(new IntegerDescriptor(DAY_TYPE_REFRESH_INTERVAL_MS, "Day-Type Refresh Interval (ms)", 5000, 250, 60000, 250));
+    ctxDayType.addRow(new IntegerDescriptor(DAY_TYPE_RECENT_LOOKBACK_SESSIONS, "Day-Type Recent Lookback Sessions", 20, 5, 60, 1));
+    ctxDayType.addRow(new DoubleDescriptor(DAY_TYPE_SCORE_WEIGHT, "Day-Type Score Weight", 1.0, 0.0, 5.0, 0.1));
+    ctxDayType.addRow(new DoubleDescriptor(DAY_TYPE_MIN_CONFIDENCE, "Day-Type Min Confidence", 7.5, 0.0, 100.0, 0.5));
+
+    SettingGroup ctxDayTypeManual = ctxTab.addGroup("Day Type Manual Aid");
+    ctxDayTypeManual.addRow(new BooleanDescriptor(USE_MANUAL_DAY_TYPE_AID, "Use Manual Day-Type Aid", false));
+    ctxDayTypeManual.addRow(new BooleanDescriptor(PREFER_MANUAL_DAY_TYPE_AID, "Prefer Manual Day-Type Aid", false));
+    ctxDayTypeManual.addRow(new DoubleDescriptor(MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_RANGE, "Manual Recent Median IB Range", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxDayTypeManual.addRow(new DoubleDescriptor(MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_VOLUME, "Manual Recent Median IB Volume", 0.0, 0.0, 1000000000.0, 1.0));
+    ctxDayTypeManual.addRow(new DoubleDescriptor(MANUAL_DAY_TYPE_ATR_LIKE_RANGE, "Manual ATR-Like Range", 0.0, 0.0, 1000000.0, 0.25));
+    ctxDayTypeManual.addRow(new DoubleDescriptor(MANUAL_DAY_TYPE_PRIOR_SESSION_CLOSE, "Manual Prior Session Close", 0.0, -1000000.0, 1000000.0, 0.25));
+
+    SettingGroup ctxSource = ctxTab.addGroup("Source Policy");
+    ctxSource.addRow(new BooleanDescriptor(USE_MANUAL_LEVEL_FALLBACK, "Use Manual Fallback When Auto Missing", true));
+    ctxSource.addRow(new BooleanDescriptor(PREFER_MANUAL_LEVELS, "Prefer Manual Levels Over Auto", false));
+
+    SettingGroup ctxManual1 = ctxTab.addGroup("Manual Daily / Overnight Levels");
+    ctxManual1.addRow(new BooleanDescriptor(MANUAL_SESSION_OPEN_ENABLED, "Manual Session Open Enabled", false));
+    ctxManual1.addRow(new DoubleDescriptor(MANUAL_SESSION_OPEN, "Manual Session Open", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual1.addRow(new BooleanDescriptor(MANUAL_PRIOR_DAY_LEVELS_ENABLED, "Manual Prior Day Levels Enabled", false));
+    ctxManual1.addRow(new DoubleDescriptor(MANUAL_PRIOR_DAY_HIGH, "Manual Prior Day High", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual1.addRow(new DoubleDescriptor(MANUAL_PRIOR_DAY_LOW, "Manual Prior Day Low", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual1.addRow(new DoubleDescriptor(MANUAL_PRIOR_DAY_CLOSE, "Manual Prior Day Close", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual1.addRow(new BooleanDescriptor(MANUAL_OVERNIGHT_LEVELS_ENABLED, "Manual Overnight Levels Enabled", false));
+    ctxManual1.addRow(new DoubleDescriptor(MANUAL_OVERNIGHT_HIGH, "Manual Overnight High", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual1.addRow(new DoubleDescriptor(MANUAL_OVERNIGHT_LOW, "Manual Overnight Low", 0.0, -1000000.0, 1000000.0, 0.25));
+
+    SettingGroup ctxManual2 = ctxTab.addGroup("Manual Opening Range / Initial Balance");
+    ctxManual2.addRow(new BooleanDescriptor(MANUAL_OPENING_RANGE_LEVELS_ENABLED, "Manual Opening Range Levels Enabled", false));
+    ctxManual2.addRow(new DoubleDescriptor(MANUAL_OPENING_RANGE_HIGH, "Manual Opening Range High", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual2.addRow(new DoubleDescriptor(MANUAL_OPENING_RANGE_LOW, "Manual Opening Range Low", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual2.addRow(new BooleanDescriptor(MANUAL_INITIAL_BALANCE_LEVELS_ENABLED, "Manual Initial Balance Levels Enabled", false));
+    ctxManual2.addRow(new DoubleDescriptor(MANUAL_INITIAL_BALANCE_HIGH, "Manual Initial Balance High", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual2.addRow(new DoubleDescriptor(MANUAL_INITIAL_BALANCE_LOW, "Manual Initial Balance Low", 0.0, -1000000.0, 1000000.0, 0.25));
+
+    SettingGroup ctxManual3 = ctxTab.addGroup("Manual Prior Value Area");
+    ctxManual3.addRow(new BooleanDescriptor(MANUAL_VALUE_AREA_LEVELS_ENABLED, "Manual Prior VA / POC Enabled", false));
+    ctxManual3.addRow(new DoubleDescriptor(MANUAL_PRIOR_VALUE_AREA_HIGH, "Manual Prior VAH", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual3.addRow(new DoubleDescriptor(MANUAL_PRIOR_VALUE_AREA_LOW, "Manual Prior VAL", 0.0, -1000000.0, 1000000.0, 0.25));
+    ctxManual3.addRow(new DoubleDescriptor(MANUAL_PRIOR_POC, "Manual Prior POC", 0.0, -1000000.0, 1000000.0, 0.25));
+
+    SettingGroup ctxDisplay = ctxTab.addGroup("Display");
+    ctxDisplay.addRow(new BooleanDescriptor(SHOW_CONTEXT_ON_HUD, "Show Context On HUD", true));
+    ctxDisplay.addRow(new BooleanDescriptor(SHOW_CONTEXT_REASONS, "Show Context Reasons", false));
+    ctxDisplay.addRow(new BooleanDescriptor(SHOW_REFERENCE_SOURCES_ON_HUD, "Show Reference Sources On HUD", true));
+    ctxDisplay.addRow(new BooleanDescriptor(SHOW_DEVELOPING_REFS_ON_HUD, "Show Developing Refs On HUD", true));
+    ctxDisplay.addRow(new BooleanDescriptor(SHOW_DAY_TYPE_ON_HUD, "Show Day Type On HUD", true));
+    ctxDisplay.addRow(new BooleanDescriptor(SHOW_DAY_TYPE_DEBUG, "Show Day Type Debug", false));
+
     setSettingsDescriptor(sd);
 
     RuntimeDescriptor rd = new RuntimeDescriptor();
@@ -208,6 +371,24 @@ public class LiquidityZoneSignalStudy extends Study {
     rd.exportValue(new ValueDescriptor(Values.SHORT_REMAINING_PCT, "LZS Short Remaining %"));
     rd.exportValue(new ValueDescriptor(Values.LONG_PATH_CLEAR, "LZS Long Path Clear"));
     rd.exportValue(new ValueDescriptor(Values.SHORT_PATH_CLEAR, "LZS Short Path Clear"));
+    rd.exportValue(new ValueDescriptor(Values.SESSION_OPEN, "LZS Session Open"));
+    rd.exportValue(new ValueDescriptor(Values.PRIOR_DAY_HIGH, "LZS Prior Day High"));
+    rd.exportValue(new ValueDescriptor(Values.PRIOR_DAY_LOW, "LZS Prior Day Low"));
+    rd.exportValue(new ValueDescriptor(Values.PRIOR_DAY_CLOSE, "LZS Prior Day Close"));
+    rd.exportValue(new ValueDescriptor(Values.OVERNIGHT_HIGH, "LZS Overnight High"));
+    rd.exportValue(new ValueDescriptor(Values.OVERNIGHT_LOW, "LZS Overnight Low"));
+    rd.exportValue(new ValueDescriptor(Values.SESSION_VWAP, "LZS Session VWAP"));
+    rd.exportValue(new ValueDescriptor(Values.OR_HIGH, "LZS Opening Range High"));
+    rd.exportValue(new ValueDescriptor(Values.OR_LOW, "LZS Opening Range Low"));
+    rd.exportValue(new ValueDescriptor(Values.OR_COMPLETE, "LZS Opening Range Complete"));
+    rd.exportValue(new ValueDescriptor(Values.IB_HIGH, "LZS Initial Balance High"));
+    rd.exportValue(new ValueDescriptor(Values.IB_LOW, "LZS Initial Balance Low"));
+    rd.exportValue(new ValueDescriptor(Values.IB_COMPLETE, "LZS Initial Balance Complete"));
+    rd.exportValue(new ValueDescriptor(Values.PRIOR_VALUE_AREA_HIGH, "LZS Prior Value Area High"));
+    rd.exportValue(new ValueDescriptor(Values.PRIOR_VALUE_AREA_LOW, "LZS Prior Value Area Low"));
+    rd.exportValue(new ValueDescriptor(Values.PRIOR_POC, "LZS Prior POC"));
+    rd.exportValue(new ValueDescriptor(Values.LONG_CONTEXT_SCORE, "LZS Long Context Score"));
+    rd.exportValue(new ValueDescriptor(Values.SHORT_CONTEXT_SCORE, "LZS Short Context Score"));
     setRuntimeDescriptor(rd);
   }
 
@@ -218,6 +399,12 @@ public class LiquidityZoneSignalStudy extends Study {
     clearHud(false);
     longState.resetLifecycle();
     shortState.resetLifecycle();
+    longContext = new LzsContextResult();
+    shortContext = new LzsContextResult();
+    sessionTracker.reset();
+    ibTracker.reset();
+    orTracker.reset();
+    dayTypeProvider.reset();
     snapshotWindow.clear();
     lastEvalAt = Long.MIN_VALUE;
     lastSnapshotRecordedAt = Long.MIN_VALUE;
@@ -231,6 +418,12 @@ public class LiquidityZoneSignalStudy extends Study {
     super.onSettingsUpdated(ctx);
     longState.resetLifecycle();
     shortState.resetLifecycle();
+    longContext = new LzsContextResult();
+    shortContext = new LzsContextResult();
+    sessionTracker.reset();
+    ibTracker.reset();
+    orTracker.reset();
+    dayTypeProvider.reset();
     hudTextCache = null;
     hudPriceCache = Double.NaN;
     hudStateSignatureCache = "";
@@ -264,6 +457,12 @@ public class LiquidityZoneSignalStudy extends Study {
     }
 
     LzsConfig cfg = buildConfig();
+    LzsContextConfig ctxCfg = buildContextConfig();
+    sessionTracker.update(index, ctx);
+    orTracker.update(index, ctx, sessionTracker, ctxCfg.openingRangeMinutes);
+    ibTracker.update(index, ctx, sessionTracker, ctxCfg.ibMinutes);
+    LzsContextSnapshot ctxSnap = buildContextSnapshot(index, ctx, ctxCfg);
+
     long now = System.currentTimeMillis();
     int effectiveEvalMs = getEffectiveEvalIntervalMs(cfg, latest != null && latest.barStartTime != Long.MIN_VALUE ? latest.barStartTime : now);
     boolean runEval = latest != null && (lastEvalAt == Long.MIN_VALUE || effectiveEvalMs <= 0 || (now - lastEvalAt) >= effectiveEvalMs);
@@ -294,16 +493,19 @@ public class LiquidityZoneSignalStudy extends Study {
         shortEmitted |= shortRes != null && shortRes.emitted;
       }
     }
+    longContext = contextEngine.evaluate(LzsSide.LONG, longState.candidate, ctxSnap, ctxCfg);
+    shortContext = contextEngine.evaluate(LzsSide.SHORT, shortState.candidate, ctxSnap, ctxCfg);
+
     String afterSig = buildStateSignature();
     boolean stateChanged = !afterSig.equals(beforeSig);
 
-    storeRuntimeValues(s, index, longEmitted, shortEmitted);
+    storeRuntimeValues(s, index, ctxSnap, longEmitted, shortEmitted);
     if (latest != null) {
-      if (longEmitted) emitSignal(ctx, index, Signals.LZS_LONG, "LZS Long", latest.lastPrice, longState);
-      if (shortEmitted) emitSignal(ctx, index, Signals.LZS_SHORT, "LZS Short", latest.lastPrice, shortState);
+      if (longEmitted) emitSignal(ctx, index, Signals.LZS_LONG, "LZS Long", latest.lastPrice, longState, longContext);
+      if (shortEmitted) emitSignal(ctx, index, Signals.LZS_SHORT, "LZS Short", latest.lastPrice, shortState, shortContext);
     }
 
-    updateHud(index, ctx, cfg, now, stateChanged);
+    updateHud(index, ctx, cfg, ctxCfg, ctxSnap, now, stateChanged);
     s.setComplete(index);
   }
 
@@ -405,11 +607,11 @@ public class LiquidityZoneSignalStudy extends Study {
 
     observedInstrument.forEachTick(start, end, rth, useHistBars, tickData -> {
       double px = roundToTick(tickData.getPrice(), tick);
-      LzsExecRow row = rows.get(px);
+      LzsExecRow row = rows.get(Double.valueOf(px));
       if (row == null) {
         row = new LzsExecRow();
         row.price = px;
-        rows.put(px, row);
+        rows.put(Double.valueOf(px), row);
       }
       double vol = tickData.getVolumeAsFloat();
       if (tickData.isAskTick()) row.askVol += vol;
@@ -463,7 +665,7 @@ public class LiquidityZoneSignalStudy extends Study {
     }
   }
 
-  private void storeRuntimeValues(DataSeries s, int index, boolean longEmitted, boolean shortEmitted) {
+  private void storeRuntimeValues(DataSeries s, int index, LzsContextSnapshot ctxSnap, boolean longEmitted, boolean shortEmitted) {
     s.setDouble(index, Values.LONG_PHASE, (double) longState.interaction.phase.ordinal());
     s.setDouble(index, Values.SHORT_PHASE, (double) shortState.interaction.phase.ordinal());
     s.setDouble(index, Values.LONG_SCORE, longState.interaction.score);
@@ -480,16 +682,39 @@ public class LiquidityZoneSignalStudy extends Study {
     s.setDouble(index, Values.SHORT_REMAINING_PCT, shortState.interaction.remainingZonePct);
     s.setDouble(index, Values.LONG_PATH_CLEAR, longState.interaction.pathClearTicks);
     s.setDouble(index, Values.SHORT_PATH_CLEAR, shortState.interaction.pathClearTicks);
+    if (ctxSnap != null) {
+      s.setDouble(index, Values.SESSION_OPEN, ctxSnap.sessionOpen.value);
+      s.setDouble(index, Values.PRIOR_DAY_HIGH, ctxSnap.priorDayHigh.value);
+      s.setDouble(index, Values.PRIOR_DAY_LOW, ctxSnap.priorDayLow.value);
+      s.setDouble(index, Values.PRIOR_DAY_CLOSE, ctxSnap.priorDayClose.value);
+      s.setDouble(index, Values.OVERNIGHT_HIGH, ctxSnap.overnightHigh.value);
+      s.setDouble(index, Values.OVERNIGHT_LOW, ctxSnap.overnightLow.value);
+      s.setDouble(index, Values.SESSION_VWAP, ctxSnap.sessionVwap.value);
+      s.setDouble(index, Values.OR_HIGH, ctxSnap.openingRangeHigh.value);
+      s.setDouble(index, Values.OR_LOW, ctxSnap.openingRangeLow.value);
+      s.setBoolean(index, Values.OR_COMPLETE, ctxSnap.openingRangeComplete);
+      s.setDouble(index, Values.IB_HIGH, ctxSnap.ibHigh.value);
+      s.setDouble(index, Values.IB_LOW, ctxSnap.ibLow.value);
+      s.setBoolean(index, Values.IB_COMPLETE, ctxSnap.ibComplete);
+      s.setDouble(index, Values.PRIOR_VALUE_AREA_HIGH, ctxSnap.priorValueAreaHigh.value);
+      s.setDouble(index, Values.PRIOR_VALUE_AREA_LOW, ctxSnap.priorValueAreaLow.value);
+      s.setDouble(index, Values.PRIOR_POC, ctxSnap.priorPoc.value);
+    }
+    s.setDouble(index, Values.LONG_CONTEXT_SCORE, longContext == null ? Double.NaN : longContext.totalScore);
+    s.setDouble(index, Values.SHORT_CONTEXT_SCORE, shortContext == null ? Double.NaN : shortContext.totalScore);
     if (longEmitted) s.setBoolean(index, Values.LONG_FIRED, true);
     if (shortEmitted) s.setBoolean(index, Values.SHORT_FIRED, true);
   }
 
-  private void emitSignal(DataContext ctx, int index, Signals signal, String label, double price, LzsSideState state) {
+  private void emitSignal(DataContext ctx, int index, Signals signal, String label, double price, LzsSideState state, LzsContextResult context) {
     if (ctx == null || state == null) return;
     Instrument instr = ctx.getInstrument();
     String priceText = instr == null ? LzsFormatUtils.fmt2(price) : instr.format(price);
     String msg = label + " | " + priceText + " | Rev " + LzsFormatUtils.fmt1(state.interaction.reversalTicks)
         + "t | Path " + LzsFormatUtils.fmt1(state.interaction.pathClearTicks) + "t";
+    if (context != null && context.summary != null && context.summary.length() > 0 && !context.freeFloating) {
+      msg += " | " + context.summary;
+    }
     ctx.signal(index, signal, msg, price);
   }
 
@@ -575,7 +800,124 @@ public class LiquidityZoneSignalStudy extends Study {
     return cfg;
   }
 
-  private void updateHud(int index, DataContext ctx, LzsConfig cfg, long now, boolean stateChanged) {
+  private LzsContextConfig buildContextConfig() {
+    LzsContextConfig cfg = LzsContextConfig.defaults();
+    cfg.enableContext = getSettings().getBoolean(ENABLE_CONTEXT, true);
+    cfg.enableStructuralRefs = getSettings().getBoolean(ENABLE_STRUCTURAL_CONTEXT, true);
+    cfg.enableOvernightRefs = getSettings().getBoolean(ENABLE_OVERNIGHT_CONTEXT, true);
+    cfg.enableVwapRef = getSettings().getBoolean(ENABLE_VWAP_CONTEXT, true);
+    cfg.enableIbRefs = getSettings().getBoolean(ENABLE_IB_CONTEXT, true);
+    cfg.enableOrRefs = getSettings().getBoolean(ENABLE_OR_CONTEXT, true);
+    cfg.enableValueAreaRefs = getSettings().getBoolean(ENABLE_VALUE_AREA_CONTEXT, true);
+    cfg.structuralProximityTicks = getSettings().getInteger(STRUCTURAL_PROX_TICKS, 8);
+    cfg.overnightProximityTicks = getSettings().getInteger(OVERNIGHT_PROX_TICKS, 8);
+    cfg.vwapProximityTicks = getSettings().getInteger(VWAP_PROX_TICKS, 8);
+    cfg.openingRangeProximityTicks = getSettings().getInteger(OR_PROX_TICKS, 6);
+    cfg.ibProximityTicks = getSettings().getInteger(IB_PROX_TICKS, 6);
+    cfg.valueAreaProximityTicks = getSettings().getInteger(VALUE_AREA_PROX_TICKS, 6);
+    cfg.openingRangeMinutes = getSettings().getInteger(OR_MINUTES, 5);
+    cfg.ibMinutes = getSettings().getInteger(IB_MINUTES, 60);
+    cfg.useManualLevelFallback = getSettings().getBoolean(USE_MANUAL_LEVEL_FALLBACK, true);
+    cfg.preferManualLevels = getSettings().getBoolean(PREFER_MANUAL_LEVELS, false);
+    cfg.manualSessionOpenEnabled = getSettings().getBoolean(MANUAL_SESSION_OPEN_ENABLED, false);
+    cfg.manualSessionOpen = manualValue(MANUAL_SESSION_OPEN, cfg.manualSessionOpenEnabled);
+    cfg.manualPriorDayLevelsEnabled = getSettings().getBoolean(MANUAL_PRIOR_DAY_LEVELS_ENABLED, false);
+    cfg.manualPriorDayHigh = manualValue(MANUAL_PRIOR_DAY_HIGH, cfg.manualPriorDayLevelsEnabled);
+    cfg.manualPriorDayLow = manualValue(MANUAL_PRIOR_DAY_LOW, cfg.manualPriorDayLevelsEnabled);
+    cfg.manualPriorDayClose = manualValue(MANUAL_PRIOR_DAY_CLOSE, cfg.manualPriorDayLevelsEnabled);
+    cfg.manualOvernightLevelsEnabled = getSettings().getBoolean(MANUAL_OVERNIGHT_LEVELS_ENABLED, false);
+    cfg.manualOvernightHigh = manualValue(MANUAL_OVERNIGHT_HIGH, cfg.manualOvernightLevelsEnabled);
+    cfg.manualOvernightLow = manualValue(MANUAL_OVERNIGHT_LOW, cfg.manualOvernightLevelsEnabled);
+    cfg.manualOpeningRangeLevelsEnabled = getSettings().getBoolean(MANUAL_OPENING_RANGE_LEVELS_ENABLED, false);
+    cfg.manualOpeningRangeHigh = manualValue(MANUAL_OPENING_RANGE_HIGH, cfg.manualOpeningRangeLevelsEnabled);
+    cfg.manualOpeningRangeLow = manualValue(MANUAL_OPENING_RANGE_LOW, cfg.manualOpeningRangeLevelsEnabled);
+    cfg.manualInitialBalanceLevelsEnabled = getSettings().getBoolean(MANUAL_INITIAL_BALANCE_LEVELS_ENABLED, false);
+    cfg.manualInitialBalanceHigh = manualValue(MANUAL_INITIAL_BALANCE_HIGH, cfg.manualInitialBalanceLevelsEnabled);
+    cfg.manualInitialBalanceLow = manualValue(MANUAL_INITIAL_BALANCE_LOW, cfg.manualInitialBalanceLevelsEnabled);
+    cfg.manualValueAreaLevelsEnabled = getSettings().getBoolean(MANUAL_VALUE_AREA_LEVELS_ENABLED, false);
+    cfg.manualPriorValueAreaHigh = manualValue(MANUAL_PRIOR_VALUE_AREA_HIGH, cfg.manualValueAreaLevelsEnabled);
+    cfg.manualPriorValueAreaLow = manualValue(MANUAL_PRIOR_VALUE_AREA_LOW, cfg.manualValueAreaLevelsEnabled);
+    cfg.manualPriorPoc = manualValue(MANUAL_PRIOR_POC, cfg.manualValueAreaLevelsEnabled);
+    cfg.showContextOnHud = getSettings().getBoolean(SHOW_CONTEXT_ON_HUD, true);
+    cfg.showContextReasons = getSettings().getBoolean(SHOW_CONTEXT_REASONS, false);
+    cfg.showReferenceSourcesOnHud = getSettings().getBoolean(SHOW_REFERENCE_SOURCES_ON_HUD, true);
+    cfg.showDevelopingReferencesOnHud = getSettings().getBoolean(SHOW_DEVELOPING_REFS_ON_HUD, true);
+    cfg.enableDayTypeContext = getSettings().getBoolean(ENABLE_DAY_TYPE_CONTEXT, true);
+    cfg.dayTypeRefreshIntervalMs = getSettings().getInteger(DAY_TYPE_REFRESH_INTERVAL_MS, 5000);
+    cfg.dayTypeRecentLookbackSessions = getSettings().getInteger(DAY_TYPE_RECENT_LOOKBACK_SESSIONS, 20);
+    cfg.dayTypeScoreWeight = getSettings().getDouble(DAY_TYPE_SCORE_WEIGHT, 1.0);
+    cfg.dayTypeMinConfidence = getSettings().getDouble(DAY_TYPE_MIN_CONFIDENCE, 7.5);
+    cfg.useManualDayTypeAid = getSettings().getBoolean(USE_MANUAL_DAY_TYPE_AID, false);
+    cfg.preferManualDayTypeAid = getSettings().getBoolean(PREFER_MANUAL_DAY_TYPE_AID, false);
+    cfg.manualRecentMedianIbRange = safeManual(getSettings().getDouble(MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_RANGE, 0.0));
+    cfg.manualRecentMedianIbVolume = safeManual(getSettings().getDouble(MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_VOLUME, 0.0));
+    cfg.manualAtrLikeRange = safeManual(getSettings().getDouble(MANUAL_DAY_TYPE_ATR_LIKE_RANGE, 0.0));
+    cfg.manualPriorSessionClose = safeManual(getSettings().getDouble(MANUAL_DAY_TYPE_PRIOR_SESSION_CLOSE, 0.0));
+    cfg.showDayTypeOnHud = getSettings().getBoolean(SHOW_DAY_TYPE_ON_HUD, true);
+    cfg.showDayTypeDebug = getSettings().getBoolean(SHOW_DAY_TYPE_DEBUG, false);
+    return cfg;
+  }
+
+  private LzsContextSnapshot buildContextSnapshot(int index, DataContext ctx, LzsContextConfig cfg) {
+    LzsContextSnapshot out = new LzsContextSnapshot();
+    if (ctx == null) return out;
+    DataSeries s = ctx.getDataSeries();
+    Instrument instr = ctx.getInstrument();
+    if (s == null || instr == null || index < 0 || index >= s.size()) return out;
+
+    out.barTime = s.getStartTime(index);
+    out.tickSize = safeTickSize(instr);
+    out.lastPrice = s.getClose(index);
+    out.sessionStartTime = sessionTracker.getCurrentSessionStartTime();
+    out.inRthSession = out.sessionStartTime != Long.MIN_VALUE && out.barTime >= out.sessionStartTime;
+    out.ibComplete = ibTracker.isIbComplete();
+    out.openingRangeComplete = orTracker.isComplete();
+    out.dayType.reset();
+    copyDayType(out, dayTypeProvider.evaluate(index, ctx, out.sessionStartTime, cfg));
+
+    out.sessionOpen.with(referenceResolver.resolveStatic("OPEN", sessionTracker.getSessionOpen(), !Double.isNaN(sessionTracker.getSessionOpen()), cfg.manualSessionOpenEnabled, cfg.manualSessionOpen, cfg));
+    out.priorDayHigh.with(referenceResolver.resolveStatic("PDH", sessionTracker.getPriorSessionHigh(), !Double.isNaN(sessionTracker.getPriorSessionHigh()), cfg.manualPriorDayLevelsEnabled, cfg.manualPriorDayHigh, cfg));
+    out.priorDayLow.with(referenceResolver.resolveStatic("PDL", sessionTracker.getPriorSessionLow(), !Double.isNaN(sessionTracker.getPriorSessionLow()), cfg.manualPriorDayLevelsEnabled, cfg.manualPriorDayLow, cfg));
+    out.priorDayClose.with(referenceResolver.resolveStatic("PDC", sessionTracker.getPriorSessionClose(), !Double.isNaN(sessionTracker.getPriorSessionClose()), cfg.manualPriorDayLevelsEnabled, cfg.manualPriorDayClose, cfg));
+    out.overnightHigh.with(referenceResolver.resolveStatic("ONH", sessionTracker.getOvernightHigh(), !Double.isNaN(sessionTracker.getOvernightHigh()), cfg.manualOvernightLevelsEnabled, cfg.manualOvernightHigh, cfg));
+    out.overnightLow.with(referenceResolver.resolveStatic("ONL", sessionTracker.getOvernightLow(), !Double.isNaN(sessionTracker.getOvernightLow()), cfg.manualOvernightLevelsEnabled, cfg.manualOvernightLow, cfg));
+    out.sessionVwap.with(referenceResolver.resolveStatic("VWAP", sessionTracker.getSessionVwap(), !Double.isNaN(sessionTracker.getSessionVwap()), false, Double.NaN, cfg));
+    out.openingRangeHigh.with(referenceResolver.resolveWindowed("ORH", orTracker.getOrHigh(), orTracker.hasOrValues(), orTracker.isComplete(), cfg.manualOpeningRangeLevelsEnabled, cfg.manualOpeningRangeHigh, cfg));
+    out.openingRangeLow.with(referenceResolver.resolveWindowed("ORL", orTracker.getOrLow(), orTracker.hasOrValues(), orTracker.isComplete(), cfg.manualOpeningRangeLevelsEnabled, cfg.manualOpeningRangeLow, cfg));
+    out.ibHigh.with(referenceResolver.resolveWindowed("IBH", ibTracker.getIbHigh(), ibTracker.hasIbValues(), ibTracker.isIbComplete(), cfg.manualInitialBalanceLevelsEnabled, cfg.manualInitialBalanceHigh, cfg));
+    out.ibLow.with(referenceResolver.resolveWindowed("IBL", ibTracker.getIbLow(), ibTracker.hasIbValues(), ibTracker.isIbComplete(), cfg.manualInitialBalanceLevelsEnabled, cfg.manualInitialBalanceLow, cfg));
+    out.priorValueAreaHigh.with(referenceResolver.resolveStatic("VAH", Double.NaN, false, cfg.manualValueAreaLevelsEnabled, cfg.manualPriorValueAreaHigh, cfg));
+    out.priorValueAreaLow.with(referenceResolver.resolveStatic("VAL", Double.NaN, false, cfg.manualValueAreaLevelsEnabled, cfg.manualPriorValueAreaLow, cfg));
+    out.priorPoc.with(referenceResolver.resolveStatic("POC", Double.NaN, false, cfg.manualValueAreaLevelsEnabled, cfg.manualPriorPoc, cfg));
+    return out;
+  }
+
+
+  private void copyDayType(LzsContextSnapshot out, study_examples.lzs.context.LzsDayTypeContext src) {
+    if (out == null || src == null) return;
+    out.dayType.state = src.state;
+    out.dayType.ibComplete = src.ibComplete;
+    out.dayType.ready = src.ready;
+    out.dayType.confidence = src.confidence;
+    out.dayType.trendUpScore = src.trendUpScore;
+    out.dayType.trendDownScore = src.trendDownScore;
+    out.dayType.rangeScore = src.rangeScore;
+    out.dayType.liquidationScore = src.liquidationScore;
+    out.dayType.supportsLongContinuation = src.supportsLongContinuation;
+    out.dayType.supportsShortContinuation = src.supportsShortContinuation;
+    out.dayType.supportsFade = src.supportsFade;
+    out.dayType.summary = src.summary;
+    out.dayType.reasons = src.reasons;
+    out.dayType.debugText = src.debugText;
+  }
+
+  private double manualValue(String key, boolean enabled) {
+    if (!enabled) return Double.NaN;
+    double v = getSettings().getDouble(key, 0.0);
+    return Math.abs(v) < 1e-9 ? Double.NaN : v;
+  }
+
+  private void updateHud(int index, DataContext ctx, LzsConfig cfg, LzsContextConfig ctxCfg, LzsContextSnapshot ctxSnap, long now, boolean stateChanged) {
     DataSeries s = ctx.getDataSeries();
     if (!cfg.showHud) {
       clearHud(false);
@@ -589,7 +931,7 @@ public class LiquidityZoneSignalStudy extends Study {
 
     double tick = ctx.getInstrument() == null ? 0.25 : safeTickSize(ctx.getInstrument());
     double anchorPrice = s.getHigh(index) + (cfg.hudOffsetTicks * tick);
-    String text = buildHudText(cfg);
+    String text = buildHudText(cfg, ctxCfg, ctxSnap);
     String stateSig = buildStateSignature();
 
     boolean sameText = text.equals(hudTextCache);
@@ -614,20 +956,24 @@ public class LiquidityZoneSignalStudy extends Study {
     notifyRedraw();
   }
 
-  private String buildHudText(LzsConfig cfg) {
+  private String buildHudText(LzsConfig cfg, LzsContextConfig ctxCfg, LzsContextSnapshot ctxSnap) {
     StringBuilder sb = new StringBuilder();
     sb.append("LZS HUD\n");
-    sb.append(LzsFormatUtils.buildHudSide(longState, cfg));
+    if (ctxCfg != null && ctxCfg.showContextOnHud && ctxSnap != null) {
+      sb.append(LzsFormatUtils.buildGlobalContextLine(ctxSnap, ctxCfg));
+      sb.append("\n");
+    }
+    sb.append(LzsFormatUtils.buildHudSide(longState, cfg, longContext, ctxCfg));
     sb.append("\n");
-    sb.append(LzsFormatUtils.buildHudSide(shortState, cfg));
+    sb.append(LzsFormatUtils.buildHudSide(shortState, cfg, shortContext, ctxCfg));
     return sb.toString();
   }
 
   private String buildStateSignature() {
-    return buildSideSignature(longState) + "||" + buildSideSignature(shortState);
+    return buildSideSignature(longState, longContext) + "||" + buildSideSignature(shortState, shortContext);
   }
 
-  private String buildSideSignature(LzsSideState state) {
+  private String buildSideSignature(LzsSideState state, LzsContextResult context) {
     if (state == null) return "NA";
     String candSig = state.candidate == null ? "-" : state.candidate.signature();
     String dbg = state.interaction.debug == null ? "" : state.interaction.debug;
@@ -636,7 +982,12 @@ public class LiquidityZoneSignalStudy extends Study {
         + state.interaction.bubbleCount + "|" + LzsFormatUtils.fmt2(state.interaction.aggressionShare) + "|"
         + LzsFormatUtils.fmt1(state.interaction.reversalTicks) + "|"
         + LzsFormatUtils.fmt2(state.interaction.remainingZonePct) + "|"
-        + LzsFormatUtils.fmt1(state.interaction.pathClearTicks);
+        + LzsFormatUtils.fmt1(state.interaction.pathClearTicks) + "|"
+        + (context == null ? "" : context.summary);
+  }
+
+  private double safeManual(double v) {
+    return Math.abs(v) < 1e-9 ? Double.NaN : v;
   }
 
   private void clearHud(boolean redraw) {
