@@ -169,6 +169,7 @@ public final class LzsEngine {
 
       if (!state.fired) {
         state.interaction.phase = LzsPhase.SIGNAL_READY;
+        state.captureSignalSnapshot();
         state.markEmitted(state.activeZoneSignature, snap.time, snap.barIndex);
         String fireDebug = buildSignalReadyDebug(state);
         emitted = true;

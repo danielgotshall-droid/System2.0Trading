@@ -7,6 +7,9 @@ public final class LzsContextSnapshot {
 
   public double tickSize = Double.NaN;
   public double lastPrice = Double.NaN;
+  public double sessionHigh = Double.NaN;
+  public double sessionLow = Double.NaN;
+  public double sessionRangePct = Double.NaN;
 
   public final LzsReferenceValue sessionOpen = new LzsReferenceValue("OPEN");
   public final LzsReferenceValue priorDayHigh = new LzsReferenceValue("PDH");

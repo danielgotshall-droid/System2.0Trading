@@ -22,80 +22,80 @@ public final class LzsContextEngine {
     if (cfg.enableStructuralRefs) {
       if (isNear(refPrice, snap.sessionOpen, tick, cfg.structuralProximityTicks)) {
         out.nearSessionOpen = true;
-        out.structuralScore += 1.0;
+        out.structuralScore += 0.30;
         out.reasons.add("OPEN");
       }
-      if (side == LzsSide.LONG && isNear(refPrice, snap.priorDayLow, tick, cfg.structuralProximityTicks)) {
-        out.nearPriorDayLow = true;
-        out.structuralScore += 1.0;
-        out.reasons.add("PDL");
-      }
-      if (side == LzsSide.SHORT && isNear(refPrice, snap.priorDayHigh, tick, cfg.structuralProximityTicks)) {
+      if (isNear(refPrice, snap.priorDayHigh, tick, cfg.structuralProximityTicks)) {
         out.nearPriorDayHigh = true;
-        out.structuralScore += 1.0;
+        out.structuralScore += 0.70;
         out.reasons.add("PDH");
+      }
+      if (isNear(refPrice, snap.priorDayLow, tick, cfg.structuralProximityTicks)) {
+        out.nearPriorDayLow = true;
+        out.structuralScore += 0.70;
+        out.reasons.add("PDL");
       }
     }
 
     if (cfg.enableOvernightRefs) {
-      if (side == LzsSide.LONG && isNear(refPrice, snap.overnightLow, tick, cfg.overnightProximityTicks)) {
-        out.nearOvernightLow = true;
-        out.overnightScore += 1.0;
-        out.reasons.add("ONL");
-      }
-      if (side == LzsSide.SHORT && isNear(refPrice, snap.overnightHigh, tick, cfg.overnightProximityTicks)) {
+      if (isNear(refPrice, snap.overnightHigh, tick, cfg.overnightProximityTicks)) {
         out.nearOvernightHigh = true;
-        out.overnightScore += 1.0;
+        out.overnightScore += 0.55;
         out.reasons.add("ONH");
+      }
+      if (isNear(refPrice, snap.overnightLow, tick, cfg.overnightProximityTicks)) {
+        out.nearOvernightLow = true;
+        out.overnightScore += 0.55;
+        out.reasons.add("ONL");
       }
     }
 
     if (cfg.enableVwapRef && isNear(refPrice, snap.sessionVwap, tick, cfg.vwapProximityTicks)) {
       out.nearVwap = true;
-      out.vwapScore += 1.0;
+      out.vwapScore += 0.45;
       out.reasons.add("VWAP");
     }
 
     if (cfg.enableIbRefs) {
-      if (side == LzsSide.LONG && isNear(refPrice, snap.ibLow, tick, cfg.ibProximityTicks)) {
-        out.nearIbLow = true;
-        out.ibScore += snap.ibLow.isReady() ? 1.0 : 0.0;
-        if (snap.ibLow.isReady()) out.reasons.add("IBL");
-      }
-      if (side == LzsSide.SHORT && isNear(refPrice, snap.ibHigh, tick, cfg.ibProximityTicks)) {
+      if (isNear(refPrice, snap.ibHigh, tick, cfg.ibProximityTicks)) {
         out.nearIbHigh = true;
-        out.ibScore += snap.ibHigh.isReady() ? 1.0 : 0.0;
+        if (snap.ibHigh.isReady()) out.ibScore += 0.50;
         if (snap.ibHigh.isReady()) out.reasons.add("IBH");
+      }
+      if (isNear(refPrice, snap.ibLow, tick, cfg.ibProximityTicks)) {
+        out.nearIbLow = true;
+        if (snap.ibLow.isReady()) out.ibScore += 0.50;
+        if (snap.ibLow.isReady()) out.reasons.add("IBL");
       }
     }
 
     if (cfg.enableOrRefs) {
-      if (side == LzsSide.LONG && isNear(refPrice, snap.openingRangeLow, tick, cfg.openingRangeProximityTicks)) {
-        out.nearOpeningRangeLow = true;
-        out.openingRangeScore += snap.openingRangeLow.isReady() ? 1.0 : 0.0;
-        if (snap.openingRangeLow.isReady()) out.reasons.add("ORL");
-      }
-      if (side == LzsSide.SHORT && isNear(refPrice, snap.openingRangeHigh, tick, cfg.openingRangeProximityTicks)) {
+      if (isNear(refPrice, snap.openingRangeHigh, tick, cfg.openingRangeProximityTicks)) {
         out.nearOpeningRangeHigh = true;
-        out.openingRangeScore += snap.openingRangeHigh.isReady() ? 1.0 : 0.0;
+        if (snap.openingRangeHigh.isReady()) out.openingRangeScore += 0.40;
         if (snap.openingRangeHigh.isReady()) out.reasons.add("ORH");
+      }
+      if (isNear(refPrice, snap.openingRangeLow, tick, cfg.openingRangeProximityTicks)) {
+        out.nearOpeningRangeLow = true;
+        if (snap.openingRangeLow.isReady()) out.openingRangeScore += 0.40;
+        if (snap.openingRangeLow.isReady()) out.reasons.add("ORL");
       }
     }
 
     if (cfg.enableValueAreaRefs) {
-      if (side == LzsSide.LONG && isNear(refPrice, snap.priorValueAreaLow, tick, cfg.valueAreaProximityTicks)) {
-        out.nearPriorValueAreaLow = true;
-        out.valueAreaScore += 1.0;
-        out.reasons.add("VAL");
-      }
-      if (side == LzsSide.SHORT && isNear(refPrice, snap.priorValueAreaHigh, tick, cfg.valueAreaProximityTicks)) {
+      if (isNear(refPrice, snap.priorValueAreaHigh, tick, cfg.valueAreaProximityTicks)) {
         out.nearPriorValueAreaHigh = true;
-        out.valueAreaScore += 1.0;
+        out.valueAreaScore += 0.55;
         out.reasons.add("VAH");
+      }
+      if (isNear(refPrice, snap.priorValueAreaLow, tick, cfg.valueAreaProximityTicks)) {
+        out.nearPriorValueAreaLow = true;
+        out.valueAreaScore += 0.55;
+        out.reasons.add("VAL");
       }
       if (isNear(refPrice, snap.priorPoc, tick, cfg.valueAreaProximityTicks)) {
         out.nearPriorPoc = true;
-        out.valueAreaScore += 0.5;
+        out.valueAreaScore += 0.30;
         out.reasons.add("POC");
       }
     }

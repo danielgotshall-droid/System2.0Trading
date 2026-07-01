@@ -1,0 +1,56 @@
+package study_examples.lzs;
+
+/**
+ * Shared exported value keys for the Liquidity Zone Signal study.
+ *
+ * These were extracted from the study so future strategy classes can read the
+ * exported state without relying on private inner enums.
+ */
+public enum LzsStudyValues {
+  LONG_PHASE,
+  SHORT_PHASE,
+  LONG_SCORE,
+  SHORT_SCORE,
+  LONG_ZONE_LOW,
+  LONG_ZONE_HIGH,
+  SHORT_ZONE_LOW,
+  SHORT_ZONE_HIGH,
+  LONG_SIGNAL_ZONE_LOW,
+  LONG_SIGNAL_ZONE_HIGH,
+  SHORT_SIGNAL_ZONE_LOW,
+  SHORT_SIGNAL_ZONE_HIGH,
+  LONG_FIRED,
+  SHORT_FIRED,
+  LONG_REV_TICKS,
+  SHORT_REV_TICKS,
+  LONG_EXEC_REF,
+  SHORT_EXEC_REF,
+  LONG_SIGNAL_EXEC_REF,
+  SHORT_SIGNAL_EXEC_REF,
+  LONG_REMAINING_PCT,
+  SHORT_REMAINING_PCT,
+  LONG_PATH_CLEAR,
+  SHORT_PATH_CLEAR,
+  SESSION_OPEN,
+  PRIOR_DAY_HIGH,
+  PRIOR_DAY_LOW,
+  PRIOR_DAY_CLOSE,
+  OVERNIGHT_HIGH,
+  OVERNIGHT_LOW,
+  SESSION_VWAP,
+  OR_HIGH,
+  OR_LOW,
+  OR_COMPLETE,
+  IB_HIGH,
+  IB_LOW,
+  IB_COMPLETE,
+  PRIOR_VALUE_AREA_HIGH,
+  PRIOR_VALUE_AREA_LOW,
+  PRIOR_POC,
+  LONG_CONTEXT_SCORE,
+  SHORT_CONTEXT_SCORE,
+  LONG_CONTEXT_PASS,
+  SHORT_CONTEXT_PASS,
+  LONG_CONTEXT_INTENT,
+  SHORT_CONTEXT_INTENT
+}
