@@ -17,8 +17,14 @@ import study_examples.lzs.context.LzsContextConfig;
 import study_examples.lzs.context.LzsContextEngine;
 import study_examples.lzs.context.LzsContextResult;
 import study_examples.lzs.context.LzsContextSnapshot;
+import study_examples.lzs.context.LzsContextMergeEngine;
+import study_examples.lzs.context.LzsContextMode;
+import study_examples.lzs.context.LzsHudDisplayMode;
+import study_examples.lzs.context.LzsMergedContextResult;
 import study_examples.lzs.context.LzsReferenceResolver;
 import study_examples.lzs.context.DayTypeContextProvider;
+import study_examples.lzs.LzsStudySignals;
+import study_examples.lzs.LzsStudyValues;
 import study_examples.lzs.engine.LzsEngine;
 import study_examples.lzs.model.*;
 import study_examples.lzs.session.InitialBalanceTracker;
@@ -48,50 +54,6 @@ import study_examples.lzs.util.LzsFormatUtils;
   requiresBidAskHistory=true
 )
 public class LiquidityZoneSignalStudy extends Study {
-
-  private enum Values {
-    LONG_PHASE,
-    SHORT_PHASE,
-    LONG_SCORE,
-    SHORT_SCORE,
-    LONG_ZONE_LOW,
-    LONG_ZONE_HIGH,
-    SHORT_ZONE_LOW,
-    SHORT_ZONE_HIGH,
-    LONG_FIRED,
-    SHORT_FIRED,
-    LONG_REV_TICKS,
-    SHORT_REV_TICKS,
-    LONG_EXEC_REF,
-    SHORT_EXEC_REF,
-    LONG_REMAINING_PCT,
-    SHORT_REMAINING_PCT,
-    LONG_PATH_CLEAR,
-    SHORT_PATH_CLEAR,
-    SESSION_OPEN,
-    PRIOR_DAY_HIGH,
-    PRIOR_DAY_LOW,
-    PRIOR_DAY_CLOSE,
-    OVERNIGHT_HIGH,
-    OVERNIGHT_LOW,
-    SESSION_VWAP,
-    OR_HIGH,
-    OR_LOW,
-    OR_COMPLETE,
-    IB_HIGH,
-    IB_LOW,
-    IB_COMPLETE,
-    PRIOR_VALUE_AREA_HIGH,
-    PRIOR_VALUE_AREA_LOW,
-    PRIOR_POC,
-    LONG_CONTEXT_SCORE,
-    SHORT_CONTEXT_SCORE
-  }
-
-  private enum Signals {
-    LZS_LONG,
-    LZS_SHORT
-  }
 
   private static final String ENABLE_LZS = "ENABLE_LZS";
   private static final String ENABLE_LONG = "ENABLE_LONG";
@@ -125,6 +87,8 @@ public class LiquidityZoneSignalStudy extends Study {
   private static final String MIN_OPEN_PATH_TICKS = "MIN_OPEN_PATH_TICKS";
   private static final String MAX_OPPOSING_BLOCK_IN_PATH = "MAX_OPPOSING_BLOCK_IN_PATH";
   private static final String ATTRACTION_PENALTY_LOOKAHEAD = "ATTRACTION_PENALTY_LOOKAHEAD";
+  private static final String OPPOSING_ZONE_CONFLICT_MODE = "OPPOSING_ZONE_CONFLICT_MODE";
+  private static final String OPPOSING_ZONE_CONFLICT_MAX_DISTANCE_TICKS = "OPPOSING_ZONE_CONFLICT_MAX_DISTANCE_TICKS";
 
   private static final String MIN_MS_BETWEEN_SAME_ZONE_SIGNALS = "MIN_MS_BETWEEN_SAME_ZONE_SIGNALS";
   private static final String MIN_BARS_BETWEEN_SAME_SIDE_SIGNALS = "MIN_BARS_BETWEEN_SAME_SIDE_SIGNALS";
@@ -188,6 +152,24 @@ public class LiquidityZoneSignalStudy extends Study {
   private static final String DAY_TYPE_MIN_CONFIDENCE = "DAY_TYPE_MIN_CONFIDENCE";
   private static final String SHOW_DAY_TYPE_ON_HUD = "SHOW_DAY_TYPE_ON_HUD";
   private static final String SHOW_DAY_TYPE_DEBUG = "SHOW_DAY_TYPE_DEBUG";
+
+  private static final String CONTEXT_MODE = "CONTEXT_MODE";
+  private static final String HUD_DISPLAY_MODE = "HUD_DISPLAY_MODE";
+  private static final String MIN_MERGED_CONTEXT_SCORE_FOR_FILTER = "MIN_MERGED_CONTEXT_SCORE_FOR_FILTER";
+  private static final String MIN_STRUCTURAL_SCORE_FOR_FILTER = "MIN_STRUCTURAL_SCORE_FOR_FILTER";
+  private static final String MIN_DAYTYPE_SCORE_FOR_FILTER = "MIN_DAYTYPE_SCORE_FOR_FILTER";
+  private static final String REQUIRE_SUPPORTS_SIDE_WHEN_FILTER = "REQUIRE_SUPPORTS_SIDE_WHEN_FILTER";
+  private static final String BLOCK_FREE_FLOATING_WHEN_FILTER = "BLOCK_FREE_FLOATING_WHEN_FILTER";
+  private static final String SHOW_FILTER_STATUS_ON_HUD = "SHOW_FILTER_STATUS_ON_HUD";
+
+
+  private static final String ENABLE_DOM_STALE_DETECTION = "ENABLE_DOM_STALE_DETECTION";
+  private static final String DOM_STALE_THRESHOLD_MS = "DOM_STALE_THRESHOLD_MS";
+  private static final String DEPTH_SIGNATURE_STALE_THRESHOLD_MS = "DEPTH_SIGNATURE_STALE_THRESHOLD_MS";
+  private static final String AUTO_RESET_DOM_ON_STALE = "AUTO_RESET_DOM_ON_STALE";
+  private static final String MAX_DOM_AUTO_RESETS_PER_SESSION = "MAX_DOM_AUTO_RESETS_PER_SESSION";
+  private static final String SHOW_DOM_HEALTH_ON_HUD = "SHOW_DOM_HEALTH_ON_HUD";
+
   private static final String USE_MANUAL_DAY_TYPE_AID = "USE_MANUAL_DAY_TYPE_AID";
   private static final String PREFER_MANUAL_DAY_TYPE_AID = "PREFER_MANUAL_DAY_TYPE_AID";
   private static final String MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_RANGE = "MANUAL_DAY_TYPE_RECENT_MEDIAN_IB_RANGE";
@@ -198,6 +180,7 @@ public class LiquidityZoneSignalStudy extends Study {
   private final Deque<LzsSnapshot> snapshotWindow = new ArrayDeque<LzsSnapshot>();
   private final LzsEngine engine = new LzsEngine();
   private final LzsContextEngine contextEngine = new LzsContextEngine();
+  private final LzsContextMergeEngine contextMergeEngine = new LzsContextMergeEngine();
   private final LzsReferenceResolver referenceResolver = new LzsReferenceResolver();
   private final RthSessionTracker sessionTracker = new RthSessionTracker();
   private final InitialBalanceTracker ibTracker = new InitialBalanceTracker();
@@ -208,6 +191,8 @@ public class LiquidityZoneSignalStudy extends Study {
 
   private LzsContextResult longContext = new LzsContextResult();
   private LzsContextResult shortContext = new LzsContextResult();
+  private LzsMergedContextResult longMergedContext = new LzsMergedContextResult();
+  private LzsMergedContextResult shortMergedContext = new LzsMergedContextResult();
 
   private Instrument observedInstrument;
   private DOMListener domListener;
@@ -221,6 +206,20 @@ public class LiquidityZoneSignalStudy extends Study {
   private String hudTextCache;
   private double hudPriceCache = Double.NaN;
   private String hudStateSignatureCache = "";
+
+  private long lastDomUpdateAt = Long.MIN_VALUE;
+  private long lastBestBidAskUpdateAt = Long.MIN_VALUE;
+  private long lastDepthSignatureChangeAt = Long.MIN_VALUE;
+  private long lastChartActivityAt = Long.MIN_VALUE;
+  private long lastDomAutoResetAt = Long.MIN_VALUE;
+  private long domResetSessionStartTime = Long.MIN_VALUE;
+  private int domAutoResetCount = 0;
+  private int lastDepthSignature = 0;
+  private int lastObservedBarIndex = -1;
+  private double lastObservedClose = Double.NaN;
+  private double lastObservedBestBid = Double.NaN;
+  private double lastObservedBestAsk = Double.NaN;
+  private String domHealthStatus = "WAIT";
 
   @Override
   public void initialize(Defaults defaults) {
@@ -240,6 +239,14 @@ public class LiquidityZoneSignalStudy extends Study {
     core.addRow(new IntegerDescriptor(OPEN_MODE_MINUTES, "Open-Mode Window (minutes)", 5, 1, 60, 1));
     core.addRow(new IntegerDescriptor(OPEN_MODE_EVAL_INTERVAL_MS, "Open-Mode Eval Interval (ms)", 150, 0, 5000, 10));
     core.addRow(new IntegerDescriptor(EXEC_REFRESH_MIN_INTERVAL_MS, "Execution Refresh Min Interval (ms)", 75, 0, 5000, 5));
+
+    SettingGroup domHealth = coreTab.addGroup("DOM Health");
+    domHealth.addRow(new BooleanDescriptor(ENABLE_DOM_STALE_DETECTION, "Enable DOM Stale Detection", true));
+    domHealth.addRow(new IntegerDescriptor(DOM_STALE_THRESHOLD_MS, "DOM Stale Threshold (ms)", 3000, 250, 60000, 250));
+    domHealth.addRow(new IntegerDescriptor(DEPTH_SIGNATURE_STALE_THRESHOLD_MS, "Depth Signature Stale Threshold (ms)", 5000, 250, 120000, 250));
+    domHealth.addRow(new BooleanDescriptor(AUTO_RESET_DOM_ON_STALE, "Auto Reset DOM Adapter On Stale", true));
+    domHealth.addRow(new IntegerDescriptor(MAX_DOM_AUTO_RESETS_PER_SESSION, "Max Auto Resets Per Session", 3, 0, 20, 1));
+    domHealth.addRow(new BooleanDescriptor(SHOW_DOM_HEALTH_ON_HUD, "Show DOM Health On HUD", false));
 
     SettingGroup zone = coreTab.addGroup("Zone Detection");
     zone.addRow(new DoubleDescriptor(ZONE_MIN_SIZE, "Zone Min Row Size", 100.0, 1.0, 100000.0, 1.0));
@@ -267,6 +274,8 @@ public class LiquidityZoneSignalStudy extends Study {
     protection.addRow(new IntegerDescriptor(MIN_OPEN_PATH_TICKS, "Min Open Path (ticks)", 0, 0, 50, 1));
     protection.addRow(new DoubleDescriptor(MAX_OPPOSING_BLOCK_IN_PATH, "Max Opposing Block In Path", 1000.0, 0.0, 100000.0, 1.0));
     protection.addRow(new IntegerDescriptor(ATTRACTION_PENALTY_LOOKAHEAD, "Attraction Lookahead (ticks)", 0, 0, 50, 1));
+    protection.addRow(new IntegerDescriptor(OPPOSING_ZONE_CONFLICT_MODE, "Opposing Zone Conflict Mode (0=Off,1=Annotate,2=Block)", 0, 0, 2, 1));
+    protection.addRow(new IntegerDescriptor(OPPOSING_ZONE_CONFLICT_MAX_DISTANCE_TICKS, "Opposing Zone Conflict Max Distance (ticks)", 12, 0, 100, 1));
 
     SettingGroup cooldown = coreTab.addGroup("Cooldown");
     cooldown.addRow(new IntegerDescriptor(MIN_MS_BETWEEN_SAME_ZONE_SIGNALS, "Min ms Between Same Zone Signals", 1500, 0, 600000, 50));
@@ -352,43 +361,63 @@ public class LiquidityZoneSignalStudy extends Study {
     ctxDisplay.addRow(new BooleanDescriptor(SHOW_DAY_TYPE_ON_HUD, "Show Day Type On HUD", true));
     ctxDisplay.addRow(new BooleanDescriptor(SHOW_DAY_TYPE_DEBUG, "Show Day Type Debug", false));
 
+    SettingGroup ctx4e = ctxTab.addGroup("4E Control / Output");
+    ctx4e.addRow(new IntegerDescriptor(CONTEXT_MODE, "Context Mode (0=Annot,1=Score,2=Bias,3=Filter)", 0, 0, 3, 1));
+    ctx4e.addRow(new IntegerDescriptor(HUD_DISPLAY_MODE, "HUD Display Mode (0=Compact,1=Standard,2=Debug)", 1, 0, 2, 1));
+    ctx4e.addRow(new DoubleDescriptor(MIN_MERGED_CONTEXT_SCORE_FOR_FILTER, "Min Merged Score For Filter", 1.0, 0.0, 10.0, 0.1));
+    ctx4e.addRow(new DoubleDescriptor(MIN_STRUCTURAL_SCORE_FOR_FILTER, "Min Structural Score For Filter", 0.0, 0.0, 10.0, 0.1));
+    ctx4e.addRow(new DoubleDescriptor(MIN_DAYTYPE_SCORE_FOR_FILTER, "Min Day-Type Score For Filter", 0.0, 0.0, 10.0, 0.1));
+    ctx4e.addRow(new BooleanDescriptor(REQUIRE_SUPPORTS_SIDE_WHEN_FILTER, "Require Supports-Side In Filter Mode", true));
+    ctx4e.addRow(new BooleanDescriptor(BLOCK_FREE_FLOATING_WHEN_FILTER, "Block Free-Floating In Filter Mode", false));
+    ctx4e.addRow(new BooleanDescriptor(SHOW_FILTER_STATUS_ON_HUD, "Show Filter Status On HUD", true));
+
     setSettingsDescriptor(sd);
 
     RuntimeDescriptor rd = new RuntimeDescriptor();
-    rd.declareSignal(Signals.LZS_LONG, "LZS Long");
-    rd.declareSignal(Signals.LZS_SHORT, "LZS Short");
-    rd.exportValue(new ValueDescriptor(Values.LONG_PHASE, "LZS Long Phase"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_PHASE, "LZS Short Phase"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_ZONE_LOW, "LZS Long Zone Low"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_ZONE_HIGH, "LZS Long Zone High"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_ZONE_LOW, "LZS Short Zone Low"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_ZONE_HIGH, "LZS Short Zone High"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_EXEC_REF, "LZS Long Exec Ref"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_EXEC_REF, "LZS Short Exec Ref"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_REV_TICKS, "LZS Long Reversal Ticks"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_REV_TICKS, "LZS Short Reversal Ticks"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_REMAINING_PCT, "LZS Long Remaining %"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_REMAINING_PCT, "LZS Short Remaining %"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_PATH_CLEAR, "LZS Long Path Clear"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_PATH_CLEAR, "LZS Short Path Clear"));
-    rd.exportValue(new ValueDescriptor(Values.SESSION_OPEN, "LZS Session Open"));
-    rd.exportValue(new ValueDescriptor(Values.PRIOR_DAY_HIGH, "LZS Prior Day High"));
-    rd.exportValue(new ValueDescriptor(Values.PRIOR_DAY_LOW, "LZS Prior Day Low"));
-    rd.exportValue(new ValueDescriptor(Values.PRIOR_DAY_CLOSE, "LZS Prior Day Close"));
-    rd.exportValue(new ValueDescriptor(Values.OVERNIGHT_HIGH, "LZS Overnight High"));
-    rd.exportValue(new ValueDescriptor(Values.OVERNIGHT_LOW, "LZS Overnight Low"));
-    rd.exportValue(new ValueDescriptor(Values.SESSION_VWAP, "LZS Session VWAP"));
-    rd.exportValue(new ValueDescriptor(Values.OR_HIGH, "LZS Opening Range High"));
-    rd.exportValue(new ValueDescriptor(Values.OR_LOW, "LZS Opening Range Low"));
-    rd.exportValue(new ValueDescriptor(Values.OR_COMPLETE, "LZS Opening Range Complete"));
-    rd.exportValue(new ValueDescriptor(Values.IB_HIGH, "LZS Initial Balance High"));
-    rd.exportValue(new ValueDescriptor(Values.IB_LOW, "LZS Initial Balance Low"));
-    rd.exportValue(new ValueDescriptor(Values.IB_COMPLETE, "LZS Initial Balance Complete"));
-    rd.exportValue(new ValueDescriptor(Values.PRIOR_VALUE_AREA_HIGH, "LZS Prior Value Area High"));
-    rd.exportValue(new ValueDescriptor(Values.PRIOR_VALUE_AREA_LOW, "LZS Prior Value Area Low"));
-    rd.exportValue(new ValueDescriptor(Values.PRIOR_POC, "LZS Prior POC"));
-    rd.exportValue(new ValueDescriptor(Values.LONG_CONTEXT_SCORE, "LZS Long Context Score"));
-    rd.exportValue(new ValueDescriptor(Values.SHORT_CONTEXT_SCORE, "LZS Short Context Score"));
+    rd.declareSignal(LzsStudySignals.LZS_LONG, "LZS Long");
+    rd.declareSignal(LzsStudySignals.LZS_SHORT, "LZS Short");
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_PHASE, "LZS Long Phase"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_PHASE, "LZS Short Phase"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_ZONE_LOW, "LZS Long Zone Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_ZONE_HIGH, "LZS Long Zone High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_ZONE_LOW, "LZS Short Zone Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_ZONE_HIGH, "LZS Short Zone High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_SIGNAL_ZONE_LOW, "LZS Long Signal Zone Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_SIGNAL_ZONE_HIGH, "LZS Long Signal Zone High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_SIGNAL_ZONE_LOW, "LZS Short Signal Zone Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_SIGNAL_ZONE_HIGH, "LZS Short Signal Zone High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_EXEC_REF, "LZS Long Exec Ref"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_EXEC_REF, "LZS Short Exec Ref"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_SIGNAL_EXEC_REF, "LZS Long Signal Exec Ref"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_SIGNAL_EXEC_REF, "LZS Short Signal Exec Ref"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_REV_TICKS, "LZS Long Reversal Ticks"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_REV_TICKS, "LZS Short Reversal Ticks"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_REMAINING_PCT, "LZS Long Remaining %"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_REMAINING_PCT, "LZS Short Remaining %"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_PATH_CLEAR, "LZS Long Path Clear"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_PATH_CLEAR, "LZS Short Path Clear"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SESSION_OPEN, "LZS Session Open"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.PRIOR_DAY_HIGH, "LZS Prior Day High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.PRIOR_DAY_LOW, "LZS Prior Day Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.PRIOR_DAY_CLOSE, "LZS Prior Day Close"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.OVERNIGHT_HIGH, "LZS Overnight High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.OVERNIGHT_LOW, "LZS Overnight Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SESSION_VWAP, "LZS Session VWAP"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.OR_HIGH, "LZS Opening Range High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.OR_LOW, "LZS Opening Range Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.OR_COMPLETE, "LZS Opening Range Complete"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.IB_HIGH, "LZS Initial Balance High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.IB_LOW, "LZS Initial Balance Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.IB_COMPLETE, "LZS Initial Balance Complete"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.PRIOR_VALUE_AREA_HIGH, "LZS Prior Value Area High"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.PRIOR_VALUE_AREA_LOW, "LZS Prior Value Area Low"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.PRIOR_POC, "LZS Prior POC"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_CONTEXT_SCORE, "LZS Long Context Score"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_CONTEXT_SCORE, "LZS Short Context Score"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_CONTEXT_PASS, "LZS Long Context Pass"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_CONTEXT_PASS, "LZS Short Context Pass"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.LONG_CONTEXT_INTENT, "LZS Long Context Intent"));
+    rd.exportValue(new ValueDescriptor(LzsStudyValues.SHORT_CONTEXT_INTENT, "LZS Short Context Intent"));
     setRuntimeDescriptor(rd);
   }
 
@@ -401,6 +430,8 @@ public class LiquidityZoneSignalStudy extends Study {
     shortState.resetLifecycle();
     longContext = new LzsContextResult();
     shortContext = new LzsContextResult();
+    longMergedContext = new LzsMergedContextResult();
+    shortMergedContext = new LzsMergedContextResult();
     sessionTracker.reset();
     ibTracker.reset();
     orTracker.reset();
@@ -410,6 +441,7 @@ public class LiquidityZoneSignalStudy extends Study {
     lastSnapshotRecordedAt = Long.MIN_VALUE;
     lastHudRefreshAt = Long.MIN_VALUE;
     lastExecRefreshAt = Long.MIN_VALUE;
+    resetDomHealthState();
     hudStateSignatureCache = "";
   }
 
@@ -420,6 +452,8 @@ public class LiquidityZoneSignalStudy extends Study {
     shortState.resetLifecycle();
     longContext = new LzsContextResult();
     shortContext = new LzsContextResult();
+    longMergedContext = new LzsMergedContextResult();
+    shortMergedContext = new LzsMergedContextResult();
     sessionTracker.reset();
     ibTracker.reset();
     orTracker.reset();
@@ -430,6 +464,7 @@ public class LiquidityZoneSignalStudy extends Study {
     lastEvalAt = Long.MIN_VALUE;
     lastHudRefreshAt = Long.MIN_VALUE;
     lastExecRefreshAt = Long.MIN_VALUE;
+    resetDomHealthState();
   }
 
   @Override
@@ -445,6 +480,9 @@ public class LiquidityZoneSignalStudy extends Study {
     }
 
     initDomListener(ctx);
+
+    long now = System.currentTimeMillis();
+    noteChartActivity(index, s, now);
 
     LzsSnapshot latest = latestSnapshot();
     if (latest != null) {
@@ -463,7 +501,17 @@ public class LiquidityZoneSignalStudy extends Study {
     ibTracker.update(index, ctx, sessionTracker, ctxCfg.ibMinutes);
     LzsContextSnapshot ctxSnap = buildContextSnapshot(index, ctx, ctxCfg);
 
-    long now = System.currentTimeMillis();
+    maybeHandleDomStale(now, ctx, ctxSnap.sessionStartTime);
+    latest = latestSnapshot();
+    if (latest != null) {
+      latest.barIndex = index;
+      latest.barStartTime = s.getStartTime(index);
+      latest.barHigh = s.getHigh(index);
+      latest.barLow = s.getLow(index);
+      latest.lastPrice = s.getClose(index);
+      latest.tickSize = ctx.getInstrument() == null ? 0.25 : safeTickSize(ctx.getInstrument());
+    }
+
     int effectiveEvalMs = getEffectiveEvalIntervalMs(cfg, latest != null && latest.barStartTime != Long.MIN_VALUE ? latest.barStartTime : now);
     boolean runEval = latest != null && (lastEvalAt == Long.MIN_VALUE || effectiveEvalMs <= 0 || (now - lastEvalAt) >= effectiveEvalMs);
 
@@ -495,14 +543,24 @@ public class LiquidityZoneSignalStudy extends Study {
     }
     longContext = contextEngine.evaluate(LzsSide.LONG, longState.candidate, ctxSnap, ctxCfg);
     shortContext = contextEngine.evaluate(LzsSide.SHORT, shortState.candidate, ctxSnap, ctxCfg);
+    longMergedContext = contextMergeEngine.merge(LzsSide.LONG, longState.candidate, longContext, ctxSnap, ctxCfg);
+    shortMergedContext = contextMergeEngine.merge(LzsSide.SHORT, shortState.candidate, shortContext, ctxSnap, ctxCfg);
+
+    applyOpposingZoneConflict(LzsSide.LONG, longState, shortState, latest, cfg);
+    applyOpposingZoneConflict(LzsSide.SHORT, shortState, longState, latest, cfg);
 
     String afterSig = buildStateSignature();
     boolean stateChanged = !afterSig.equals(beforeSig);
 
-    storeRuntimeValues(s, index, ctxSnap, longEmitted, shortEmitted);
+    boolean longSignalOut = longEmitted && shouldEmitWithContext(LzsSide.LONG, longMergedContext, ctxCfg)
+        && !shouldBlockOnOpposingZone(longState, cfg);
+    boolean shortSignalOut = shortEmitted && shouldEmitWithContext(LzsSide.SHORT, shortMergedContext, ctxCfg)
+        && !shouldBlockOnOpposingZone(shortState, cfg);
+
+    storeRuntimeValues(s, index, ctxSnap, longSignalOut, shortSignalOut);
     if (latest != null) {
-      if (longEmitted) emitSignal(ctx, index, Signals.LZS_LONG, "LZS Long", latest.lastPrice, longState, longContext);
-      if (shortEmitted) emitSignal(ctx, index, Signals.LZS_SHORT, "LZS Short", latest.lastPrice, shortState, shortContext);
+      if (longSignalOut) emitSignal(ctx, index, LzsStudySignals.LZS_LONG, "LZS Long", latest.lastPrice, longState, longContext);
+      if (shortSignalOut) emitSignal(ctx, index, LzsStudySignals.LZS_SHORT, "LZS Short", latest.lastPrice, shortState, shortContext);
     }
 
     updateHud(index, ctx, cfg, ctxCfg, ctxSnap, now, stateChanged);
@@ -540,6 +598,12 @@ public class LiquidityZoneSignalStudy extends Study {
     observedInstrument = null;
     snapshotWindow.clear();
     lastSnapshotRecordedAt = Long.MIN_VALUE;
+    lastDomUpdateAt = Long.MIN_VALUE;
+    lastBestBidAskUpdateAt = Long.MIN_VALUE;
+    lastDepthSignatureChangeAt = Long.MIN_VALUE;
+    lastObservedBestBid = Double.NaN;
+    lastObservedBestAsk = Double.NaN;
+    lastDepthSignature = 0;
   }
 
   private void recordSnapshot(DOM dom, int captureLevels) {
@@ -550,6 +614,19 @@ public class LiquidityZoneSignalStudy extends Study {
 
     LzsSnapshot snap = buildSnapshot(dom, captureLevels);
     if (snap == null) return;
+
+    lastDomUpdateAt = now;
+    if (Double.compare(snap.bestBid, lastObservedBestBid) != 0 || Double.compare(snap.bestAsk, lastObservedBestAsk) != 0) {
+      lastObservedBestBid = snap.bestBid;
+      lastObservedBestAsk = snap.bestAsk;
+      lastBestBidAskUpdateAt = now;
+    }
+    int sig = computeDepthSignature(snap);
+    if (sig != lastDepthSignature) {
+      lastDepthSignature = sig;
+      lastDepthSignatureChangeAt = now;
+    }
+    domHealthStatus = "OK";
 
     synchronized (snapshotWindow) {
       snapshotWindow.addLast(snap);
@@ -665,48 +742,100 @@ public class LiquidityZoneSignalStudy extends Study {
     }
   }
 
-  private void storeRuntimeValues(DataSeries s, int index, LzsContextSnapshot ctxSnap, boolean longEmitted, boolean shortEmitted) {
-    s.setDouble(index, Values.LONG_PHASE, (double) longState.interaction.phase.ordinal());
-    s.setDouble(index, Values.SHORT_PHASE, (double) shortState.interaction.phase.ordinal());
-    s.setDouble(index, Values.LONG_SCORE, longState.interaction.score);
-    s.setDouble(index, Values.SHORT_SCORE, shortState.interaction.score);
-    s.setDouble(index, Values.LONG_ZONE_LOW, longState.candidate == null ? Double.NaN : longState.candidate.zoneLow);
-    s.setDouble(index, Values.LONG_ZONE_HIGH, longState.candidate == null ? Double.NaN : longState.candidate.zoneHigh);
-    s.setDouble(index, Values.SHORT_ZONE_LOW, shortState.candidate == null ? Double.NaN : shortState.candidate.zoneLow);
-    s.setDouble(index, Values.SHORT_ZONE_HIGH, shortState.candidate == null ? Double.NaN : shortState.candidate.zoneHigh);
-    s.setDouble(index, Values.LONG_EXEC_REF, longState.interaction.reversalRefPrice);
-    s.setDouble(index, Values.SHORT_EXEC_REF, shortState.interaction.reversalRefPrice);
-    s.setDouble(index, Values.LONG_REV_TICKS, longState.interaction.reversalTicks);
-    s.setDouble(index, Values.SHORT_REV_TICKS, shortState.interaction.reversalTicks);
-    s.setDouble(index, Values.LONG_REMAINING_PCT, longState.interaction.remainingZonePct);
-    s.setDouble(index, Values.SHORT_REMAINING_PCT, shortState.interaction.remainingZonePct);
-    s.setDouble(index, Values.LONG_PATH_CLEAR, longState.interaction.pathClearTicks);
-    s.setDouble(index, Values.SHORT_PATH_CLEAR, shortState.interaction.pathClearTicks);
-    if (ctxSnap != null) {
-      s.setDouble(index, Values.SESSION_OPEN, ctxSnap.sessionOpen.value);
-      s.setDouble(index, Values.PRIOR_DAY_HIGH, ctxSnap.priorDayHigh.value);
-      s.setDouble(index, Values.PRIOR_DAY_LOW, ctxSnap.priorDayLow.value);
-      s.setDouble(index, Values.PRIOR_DAY_CLOSE, ctxSnap.priorDayClose.value);
-      s.setDouble(index, Values.OVERNIGHT_HIGH, ctxSnap.overnightHigh.value);
-      s.setDouble(index, Values.OVERNIGHT_LOW, ctxSnap.overnightLow.value);
-      s.setDouble(index, Values.SESSION_VWAP, ctxSnap.sessionVwap.value);
-      s.setDouble(index, Values.OR_HIGH, ctxSnap.openingRangeHigh.value);
-      s.setDouble(index, Values.OR_LOW, ctxSnap.openingRangeLow.value);
-      s.setBoolean(index, Values.OR_COMPLETE, ctxSnap.openingRangeComplete);
-      s.setDouble(index, Values.IB_HIGH, ctxSnap.ibHigh.value);
-      s.setDouble(index, Values.IB_LOW, ctxSnap.ibLow.value);
-      s.setBoolean(index, Values.IB_COMPLETE, ctxSnap.ibComplete);
-      s.setDouble(index, Values.PRIOR_VALUE_AREA_HIGH, ctxSnap.priorValueAreaHigh.value);
-      s.setDouble(index, Values.PRIOR_VALUE_AREA_LOW, ctxSnap.priorValueAreaLow.value);
-      s.setDouble(index, Values.PRIOR_POC, ctxSnap.priorPoc.value);
+  private void applyOpposingZoneConflict(LzsSide side, LzsSideState state, LzsSideState opposing, LzsSnapshot snap, LzsConfig cfg) {
+    if (state == null || cfg == null) return;
+    state.interaction.opposingZoneConflict = false;
+    state.interaction.opposingZoneConflictDistanceTicks = Double.NaN;
+    state.interaction.opposingZoneConflictTag = "";
+    if (cfg.opposingZoneConflictMode <= 0 || snap == null || opposing == null || opposing.candidate == null || !opposing.candidate.valid) return;
+
+    double tick = Math.max(1e-9, snap.tickSize);
+    LzsZoneCandidate opp = opposing.candidate;
+    double distTicks;
+    if (side == LzsSide.LONG) {
+      if (opp.zoneHigh < snap.lastPrice - 1e-9) return;
+      distTicks = opp.zoneLow <= snap.lastPrice + 1e-9 ? 0.0 : (opp.zoneLow - snap.lastPrice) / tick;
     }
-    s.setDouble(index, Values.LONG_CONTEXT_SCORE, longContext == null ? Double.NaN : longContext.totalScore);
-    s.setDouble(index, Values.SHORT_CONTEXT_SCORE, shortContext == null ? Double.NaN : shortContext.totalScore);
-    if (longEmitted) s.setBoolean(index, Values.LONG_FIRED, true);
-    if (shortEmitted) s.setBoolean(index, Values.SHORT_FIRED, true);
+    else {
+      if (opp.zoneLow > snap.lastPrice + 1e-9) return;
+      distTicks = opp.zoneHigh >= snap.lastPrice - 1e-9 ? 0.0 : (snap.lastPrice - opp.zoneHigh) / tick;
+    }
+    if (distTicks > Math.max(0, cfg.opposingZoneConflictMaxDistanceTicks)) return;
+
+    state.interaction.opposingZoneConflict = true;
+    state.interaction.opposingZoneConflictDistanceTicks = Math.max(0.0, distTicks);
+    state.interaction.opposingZoneConflictTag = String.format(java.util.Locale.US, "opp%s@%.1ft", opposing.side == LzsSide.LONG ? "Long" : "Short", Math.max(0.0, distTicks));
+    String add = String.format(java.util.Locale.US, "LZS opp zone | %s %.2f-%.2f | D %.1ft",
+        opposing.side == LzsSide.LONG ? "BID" : "ASK",
+        opp.zoneLow, opp.zoneHigh, Math.max(0.0, distTicks));
+    if (state.interaction.debug == null || state.interaction.debug.length() == 0) state.interaction.debug = add;
+    else if (!state.interaction.debug.contains("LZS opp zone")) state.interaction.debug = state.interaction.debug + "\n" + add;
+    if (state.interaction.reason == null || state.interaction.reason.length() == 0) state.interaction.reason = state.interaction.opposingZoneConflictTag;
+    else if (!state.interaction.reason.contains("opp")) state.interaction.reason = state.interaction.reason + "/" + state.interaction.opposingZoneConflictTag;
   }
 
-  private void emitSignal(DataContext ctx, int index, Signals signal, String label, double price, LzsSideState state, LzsContextResult context) {
+  private boolean shouldBlockOnOpposingZone(LzsSideState state, LzsConfig cfg) {
+    return cfg != null && cfg.opposingZoneConflictMode >= 2 && state != null && state.interaction.opposingZoneConflict;
+  }
+
+  private void storeRuntimeValues(DataSeries s, int index, LzsContextSnapshot ctxSnap, boolean longEmitted, boolean shortEmitted) {
+    s.setDouble(index, LzsStudyValues.LONG_PHASE, (double) longState.interaction.phase.ordinal());
+    s.setDouble(index, LzsStudyValues.SHORT_PHASE, (double) shortState.interaction.phase.ordinal());
+    s.setDouble(index, LzsStudyValues.LONG_SCORE, longState.interaction.score);
+    s.setDouble(index, LzsStudyValues.SHORT_SCORE, shortState.interaction.score);
+    s.setDouble(index, LzsStudyValues.LONG_ZONE_LOW, longState.candidate == null ? Double.NaN : longState.candidate.zoneLow);
+    s.setDouble(index, LzsStudyValues.LONG_ZONE_HIGH, longState.candidate == null ? Double.NaN : longState.candidate.zoneHigh);
+    s.setDouble(index, LzsStudyValues.SHORT_ZONE_LOW, shortState.candidate == null ? Double.NaN : shortState.candidate.zoneLow);
+    s.setDouble(index, LzsStudyValues.SHORT_ZONE_HIGH, shortState.candidate == null ? Double.NaN : shortState.candidate.zoneHigh);
+    s.setDouble(index, LzsStudyValues.LONG_EXEC_REF, longState.interaction.reversalRefPrice);
+    s.setDouble(index, LzsStudyValues.SHORT_EXEC_REF, shortState.interaction.reversalRefPrice);
+    s.setDouble(index, LzsStudyValues.LONG_SIGNAL_ZONE_LOW, longEmitted ? longState.signalZoneLow : Double.NaN);
+    s.setDouble(index, LzsStudyValues.LONG_SIGNAL_ZONE_HIGH, longEmitted ? longState.signalZoneHigh : Double.NaN);
+    s.setDouble(index, LzsStudyValues.SHORT_SIGNAL_ZONE_LOW, shortEmitted ? shortState.signalZoneLow : Double.NaN);
+    s.setDouble(index, LzsStudyValues.SHORT_SIGNAL_ZONE_HIGH, shortEmitted ? shortState.signalZoneHigh : Double.NaN);
+    s.setDouble(index, LzsStudyValues.LONG_SIGNAL_EXEC_REF, longEmitted ? longState.signalExecRef : Double.NaN);
+    s.setDouble(index, LzsStudyValues.SHORT_SIGNAL_EXEC_REF, shortEmitted ? shortState.signalExecRef : Double.NaN);
+    s.setDouble(index, LzsStudyValues.LONG_REV_TICKS, longState.interaction.reversalTicks);
+    s.setDouble(index, LzsStudyValues.SHORT_REV_TICKS, shortState.interaction.reversalTicks);
+    s.setDouble(index, LzsStudyValues.LONG_REMAINING_PCT, longState.interaction.remainingZonePct);
+    s.setDouble(index, LzsStudyValues.SHORT_REMAINING_PCT, shortState.interaction.remainingZonePct);
+    s.setDouble(index, LzsStudyValues.LONG_PATH_CLEAR, longState.interaction.pathClearTicks);
+    s.setDouble(index, LzsStudyValues.SHORT_PATH_CLEAR, shortState.interaction.pathClearTicks);
+    if (ctxSnap != null) {
+      s.setDouble(index, LzsStudyValues.SESSION_OPEN, ctxSnap.sessionOpen.value);
+      s.setDouble(index, LzsStudyValues.PRIOR_DAY_HIGH, ctxSnap.priorDayHigh.value);
+      s.setDouble(index, LzsStudyValues.PRIOR_DAY_LOW, ctxSnap.priorDayLow.value);
+      s.setDouble(index, LzsStudyValues.PRIOR_DAY_CLOSE, ctxSnap.priorDayClose.value);
+      s.setDouble(index, LzsStudyValues.OVERNIGHT_HIGH, ctxSnap.overnightHigh.value);
+      s.setDouble(index, LzsStudyValues.OVERNIGHT_LOW, ctxSnap.overnightLow.value);
+      s.setDouble(index, LzsStudyValues.SESSION_VWAP, ctxSnap.sessionVwap.value);
+      s.setDouble(index, LzsStudyValues.OR_HIGH, ctxSnap.openingRangeHigh.value);
+      s.setDouble(index, LzsStudyValues.OR_LOW, ctxSnap.openingRangeLow.value);
+      s.setBoolean(index, LzsStudyValues.OR_COMPLETE, ctxSnap.openingRangeComplete);
+      s.setDouble(index, LzsStudyValues.IB_HIGH, ctxSnap.ibHigh.value);
+      s.setDouble(index, LzsStudyValues.IB_LOW, ctxSnap.ibLow.value);
+      s.setBoolean(index, LzsStudyValues.IB_COMPLETE, ctxSnap.ibComplete);
+      s.setDouble(index, LzsStudyValues.PRIOR_VALUE_AREA_HIGH, ctxSnap.priorValueAreaHigh.value);
+      s.setDouble(index, LzsStudyValues.PRIOR_VALUE_AREA_LOW, ctxSnap.priorValueAreaLow.value);
+      s.setDouble(index, LzsStudyValues.PRIOR_POC, ctxSnap.priorPoc.value);
+    }
+    s.setDouble(index, LzsStudyValues.LONG_CONTEXT_SCORE, longMergedContext == null ? (longContext == null ? Double.NaN : longContext.totalScore) : longMergedContext.sideScore);
+    s.setDouble(index, LzsStudyValues.SHORT_CONTEXT_SCORE, shortMergedContext == null ? (shortContext == null ? Double.NaN : shortContext.totalScore) : shortMergedContext.sideScore);
+    s.setBoolean(index, LzsStudyValues.LONG_CONTEXT_PASS, longMergedContext != null && longMergedContext.passesFilter);
+    s.setBoolean(index, LzsStudyValues.SHORT_CONTEXT_PASS, shortMergedContext != null && shortMergedContext.passesFilter);
+    s.setDouble(index, LzsStudyValues.LONG_CONTEXT_INTENT, longMergedContext == null || longMergedContext.intent == null ? Double.NaN : (double) longMergedContext.intent.ordinal());
+    s.setDouble(index, LzsStudyValues.SHORT_CONTEXT_INTENT, shortMergedContext == null || shortMergedContext.intent == null ? Double.NaN : (double) shortMergedContext.intent.ordinal());
+    if (longEmitted) s.setBoolean(index, LzsStudyValues.LONG_FIRED, true);
+    if (shortEmitted) s.setBoolean(index, LzsStudyValues.SHORT_FIRED, true);
+  }
+
+  private boolean shouldEmitWithContext(LzsSide side, LzsMergedContextResult merged, LzsContextConfig cfg) {
+    if (cfg == null || cfg.contextMode != LzsContextMode.OPTIONAL_FILTER) return true;
+    if (merged == null) return false;
+    return merged.passesFilter;
+  }
+
+  private void emitSignal(DataContext ctx, int index, LzsStudySignals signal, String label, double price, LzsSideState state, LzsContextResult context) {
     if (ctx == null || state == null) return;
     Instrument instr = ctx.getInstrument();
     String priceText = instr == null ? LzsFormatUtils.fmt2(price) : instr.format(price);
@@ -756,6 +885,114 @@ public class LiquidityZoneSignalStudy extends Study {
     }
   }
 
+  private void noteChartActivity(int index, DataSeries s, long now) {
+    if (s == null) return;
+    double close = s.getClose(index);
+    if (index != lastObservedBarIndex || Double.compare(close, lastObservedClose) != 0) {
+      lastObservedBarIndex = index;
+      lastObservedClose = close;
+      lastChartActivityAt = now;
+    }
+  }
+
+  private void maybeHandleDomStale(long now, DataContext ctx, long sessionStartTime) {
+    if (!getSettings().getBoolean(ENABLE_DOM_STALE_DETECTION, true)) {
+      domHealthStatus = "OFF";
+      return;
+    }
+    rollDomResetSession(sessionStartTime);
+    long domStaleMs = Math.max(250L, getSettings().getInteger(DOM_STALE_THRESHOLD_MS, 3000));
+    long depthStaleMs = Math.max(domStaleMs, getSettings().getInteger(DEPTH_SIGNATURE_STALE_THRESHOLD_MS, 5000));
+
+    boolean chartActive = lastChartActivityAt != Long.MIN_VALUE && (now - lastChartActivityAt) <= Math.max(1500L, domStaleMs * 2L);
+    boolean domOld = lastDomUpdateAt == Long.MIN_VALUE || (now - lastDomUpdateAt) >= domStaleMs;
+    boolean bboOld = lastBestBidAskUpdateAt == Long.MIN_VALUE || (now - lastBestBidAskUpdateAt) >= domStaleMs;
+    boolean depthOld = lastDepthSignatureChangeAt == Long.MIN_VALUE || (now - lastDepthSignatureChangeAt) >= depthStaleMs;
+    boolean hardStale = listenerAttached && chartActive && domOld && (bboOld || depthOld);
+
+    if (!hardStale) {
+      if (listenerAttached) domHealthStatus = "OK";
+      else domHealthStatus = "WAIT";
+      return;
+    }
+
+    domHealthStatus = "STALE";
+    if (!getSettings().getBoolean(AUTO_RESET_DOM_ON_STALE, true)) return;
+
+    int maxResets = Math.max(0, getSettings().getInteger(MAX_DOM_AUTO_RESETS_PER_SESSION, 3));
+    if (domAutoResetCount >= maxResets) {
+      domHealthStatus = "STALE_MAX";
+      return;
+    }
+
+    long cooldownMs = Math.max(2000L, domStaleMs / 2L);
+    if (lastDomAutoResetAt != Long.MIN_VALUE && (now - lastDomAutoResetAt) < cooldownMs) {
+      domHealthStatus = "RECOVER";
+      return;
+    }
+
+    autoResetDomAdapter(ctx, now);
+  }
+
+  private void autoResetDomAdapter(DataContext ctx, long now) {
+    longState.resetLifecycle();
+    shortState.resetLifecycle();
+    longContext = new LzsContextResult();
+    shortContext = new LzsContextResult();
+    longMergedContext = new LzsMergedContextResult();
+    shortMergedContext = new LzsMergedContextResult();
+    lastEvalAt = Long.MIN_VALUE;
+    lastExecRefreshAt = Long.MIN_VALUE;
+    snapshotWindow.clear();
+    detachDomListener();
+    if (ctx != null) initDomListener(ctx);
+    domAutoResetCount++;
+    lastDomAutoResetAt = now;
+    domHealthStatus = "RESET" + domAutoResetCount;
+  }
+
+  private void rollDomResetSession(long sessionStartTime) {
+    if (sessionStartTime == Long.MIN_VALUE) return;
+    if (domResetSessionStartTime != sessionStartTime) {
+      domResetSessionStartTime = sessionStartTime;
+      domAutoResetCount = 0;
+    }
+  }
+
+  private int computeDepthSignature(LzsSnapshot snap) {
+    if (snap == null) return 0;
+    int hash = 17;
+    int bidLim = Math.min(6, snap.bidRowsNear.size());
+    int askLim = Math.min(6, snap.askRowsNear.size());
+    for (int i = 0; i < bidLim; i++) {
+      LzsRow r = snap.bidRowsNear.get(i);
+      hash = 31 * hash + Double.hashCode(r.price);
+      hash = 31 * hash + Double.hashCode(r.size);
+    }
+    for (int i = 0; i < askLim; i++) {
+      LzsRow r = snap.askRowsNear.get(i);
+      hash = 31 * hash + Double.hashCode(r.price);
+      hash = 31 * hash + Double.hashCode(r.size);
+    }
+    return hash;
+  }
+
+  private void resetDomHealthState() {
+    lastDomUpdateAt = Long.MIN_VALUE;
+    lastBestBidAskUpdateAt = Long.MIN_VALUE;
+    lastDepthSignatureChangeAt = Long.MIN_VALUE;
+    lastChartActivityAt = Long.MIN_VALUE;
+    lastDomAutoResetAt = Long.MIN_VALUE;
+    domResetSessionStartTime = Long.MIN_VALUE;
+    domAutoResetCount = 0;
+    lastDepthSignature = 0;
+    lastObservedBarIndex = -1;
+    lastObservedClose = Double.NaN;
+    lastObservedBestBid = Double.NaN;
+    lastObservedBestAsk = Double.NaN;
+    domHealthStatus = "WAIT";
+  }
+
   private LzsConfig buildConfig() {
     LzsConfig cfg = LzsConfig.defaults();
     cfg.enableLong = getSettings().getBoolean(ENABLE_LONG, true);
@@ -786,6 +1023,8 @@ public class LiquidityZoneSignalStudy extends Study {
     cfg.minOpenPathTicks = getSettings().getInteger(MIN_OPEN_PATH_TICKS, 0);
     cfg.maxOpposingBlockInPath = getSettings().getDouble(MAX_OPPOSING_BLOCK_IN_PATH, 1000.0);
     cfg.attractionPenaltyLookaheadTicks = getSettings().getInteger(ATTRACTION_PENALTY_LOOKAHEAD, 0);
+    cfg.opposingZoneConflictMode = getSettings().getInteger(OPPOSING_ZONE_CONFLICT_MODE, 0);
+    cfg.opposingZoneConflictMaxDistanceTicks = getSettings().getInteger(OPPOSING_ZONE_CONFLICT_MAX_DISTANCE_TICKS, cfg.zoneMaxDistanceTicks);
     cfg.minMsBetweenSameZoneSignals = getSettings().getInteger(MIN_MS_BETWEEN_SAME_ZONE_SIGNALS, 1500);
     cfg.minBarsBetweenSameSideSignals = getSettings().getInteger(MIN_BARS_BETWEEN_SAME_SIDE_SIGNALS, 0);
     cfg.showHud = getSettings().getBoolean(SHOW_HUD, true);
@@ -855,6 +1094,14 @@ public class LiquidityZoneSignalStudy extends Study {
     cfg.manualPriorSessionClose = safeManual(getSettings().getDouble(MANUAL_DAY_TYPE_PRIOR_SESSION_CLOSE, 0.0));
     cfg.showDayTypeOnHud = getSettings().getBoolean(SHOW_DAY_TYPE_ON_HUD, true);
     cfg.showDayTypeDebug = getSettings().getBoolean(SHOW_DAY_TYPE_DEBUG, false);
+    cfg.contextMode = LzsContextMode.fromCode(getSettings().getInteger(CONTEXT_MODE, 0));
+    cfg.hudDisplayMode = LzsHudDisplayMode.fromCode(getSettings().getInteger(HUD_DISPLAY_MODE, 1));
+    cfg.minMergedContextScoreForFilter = getSettings().getDouble(MIN_MERGED_CONTEXT_SCORE_FOR_FILTER, 1.0);
+    cfg.minStructuralScoreForFilter = getSettings().getDouble(MIN_STRUCTURAL_SCORE_FOR_FILTER, 0.0);
+    cfg.minDayTypeScoreForFilter = getSettings().getDouble(MIN_DAYTYPE_SCORE_FOR_FILTER, 0.0);
+    cfg.requireSupportsSideWhenFilterEnabled = getSettings().getBoolean(REQUIRE_SUPPORTS_SIDE_WHEN_FILTER, true);
+    cfg.blockFreeFloatingWhenFilterEnabled = getSettings().getBoolean(BLOCK_FREE_FLOATING_WHEN_FILTER, false);
+    cfg.showFilterStatusOnHud = getSettings().getBoolean(SHOW_FILTER_STATUS_ON_HUD, true);
     return cfg;
   }
 
@@ -868,6 +1115,11 @@ public class LiquidityZoneSignalStudy extends Study {
     out.barTime = s.getStartTime(index);
     out.tickSize = safeTickSize(instr);
     out.lastPrice = s.getClose(index);
+    out.sessionHigh = sessionTracker.getSessionHigh();
+    out.sessionLow = sessionTracker.getSessionLow();
+    if (!Double.isNaN(out.sessionHigh) && !Double.isNaN(out.sessionLow) && out.sessionHigh > out.sessionLow && !Double.isNaN(out.lastPrice)) {
+      out.sessionRangePct = Math.max(0.0, Math.min(1.0, (out.lastPrice - out.sessionLow) / (out.sessionHigh - out.sessionLow)));
+    }
     out.sessionStartTime = sessionTracker.getCurrentSessionStartTime();
     out.inRthSession = out.sessionStartTime != Long.MIN_VALUE && out.barTime >= out.sessionStartTime;
     out.ibComplete = ibTracker.isIbComplete();
@@ -896,8 +1148,11 @@ public class LiquidityZoneSignalStudy extends Study {
   private void copyDayType(LzsContextSnapshot out, study_examples.lzs.context.LzsDayTypeContext src) {
     if (out == null || src == null) return;
     out.dayType.state = src.state;
+    out.dayType.archetypeState = src.archetypeState;
+    out.dayType.liveState = src.liveState;
     out.dayType.ibComplete = src.ibComplete;
     out.dayType.ready = src.ready;
+    out.dayType.applicable = src.applicable;
     out.dayType.confidence = src.confidence;
     out.dayType.trendUpScore = src.trendUpScore;
     out.dayType.trendDownScore = src.trendDownScore;
@@ -906,6 +1161,9 @@ public class LiquidityZoneSignalStudy extends Study {
     out.dayType.supportsLongContinuation = src.supportsLongContinuation;
     out.dayType.supportsShortContinuation = src.supportsShortContinuation;
     out.dayType.supportsFade = src.supportsFade;
+    out.dayType.manualAidUsed = src.manualAidUsed;
+    out.dayType.historicalNormReady = src.historicalNormReady;
+    out.dayType.lookbackSessionsUsed = src.lookbackSessionsUsed;
     out.dayType.summary = src.summary;
     out.dayType.reasons = src.reasons;
     out.dayType.debugText = src.debugText;
@@ -959,21 +1217,43 @@ public class LiquidityZoneSignalStudy extends Study {
   private String buildHudText(LzsConfig cfg, LzsContextConfig ctxCfg, LzsContextSnapshot ctxSnap) {
     StringBuilder sb = new StringBuilder();
     sb.append("LZS HUD\n");
+    if (getSettings().getBoolean(SHOW_DOM_HEALTH_ON_HUD, false)) {
+      sb.append(buildDomHealthLine(System.currentTimeMillis()));
+      sb.append("\n");
+    }
     if (ctxCfg != null && ctxCfg.showContextOnHud && ctxSnap != null) {
       sb.append(LzsFormatUtils.buildGlobalContextLine(ctxSnap, ctxCfg));
       sb.append("\n");
     }
-    sb.append(LzsFormatUtils.buildHudSide(longState, cfg, longContext, ctxCfg));
+    sb.append(LzsFormatUtils.buildHudSide(longState, cfg, longContext, longMergedContext, ctxCfg));
     sb.append("\n");
-    sb.append(LzsFormatUtils.buildHudSide(shortState, cfg, shortContext, ctxCfg));
+    sb.append(LzsFormatUtils.buildHudSide(shortState, cfg, shortContext, shortMergedContext, ctxCfg));
     return sb.toString();
   }
 
-  private String buildStateSignature() {
-    return buildSideSignature(longState, longContext) + "||" + buildSideSignature(shortState, shortContext);
+  private String buildDomHealthLine(long now) {
+    double domAge = ageSeconds(now, lastDomUpdateAt);
+    double quoteAge = ageSeconds(now, lastBestBidAskUpdateAt);
+    double depthAge = ageSeconds(now, lastDepthSignatureChangeAt);
+    StringBuilder sb = new StringBuilder();
+    sb.append("DOM ").append(domHealthStatus);
+    if (domAge >= 0.0) sb.append(" | D ").append(LzsFormatUtils.fmt1(domAge)).append("s");
+    if (quoteAge >= 0.0) sb.append(" | Q ").append(LzsFormatUtils.fmt1(quoteAge)).append("s");
+    if (depthAge >= 0.0) sb.append(" | Sig ").append(LzsFormatUtils.fmt1(depthAge)).append("s");
+    if (domAutoResetCount > 0) sb.append(" | R ").append(domAutoResetCount);
+    return sb.toString();
   }
 
-  private String buildSideSignature(LzsSideState state, LzsContextResult context) {
+  private double ageSeconds(long now, long then) {
+    if (then == Long.MIN_VALUE || now < then) return -1.0;
+    return (now - then) / 1000.0;
+  }
+
+  private String buildStateSignature() {
+    return buildSideSignature(longState, longContext, longMergedContext) + "||" + buildSideSignature(shortState, shortContext, shortMergedContext);
+  }
+
+  private String buildSideSignature(LzsSideState state, LzsContextResult context, LzsMergedContextResult merged) {
     if (state == null) return "NA";
     String candSig = state.candidate == null ? "-" : state.candidate.signature();
     String dbg = state.interaction.debug == null ? "" : state.interaction.debug;
@@ -983,7 +1263,8 @@ public class LiquidityZoneSignalStudy extends Study {
         + LzsFormatUtils.fmt1(state.interaction.reversalTicks) + "|"
         + LzsFormatUtils.fmt2(state.interaction.remainingZonePct) + "|"
         + LzsFormatUtils.fmt1(state.interaction.pathClearTicks) + "|"
-        + (context == null ? "" : context.summary);
+        + (context == null ? "" : context.summary) + "|"
+        + (merged == null ? "" : merged.summary);
   }
 
   private double safeManual(double v) {

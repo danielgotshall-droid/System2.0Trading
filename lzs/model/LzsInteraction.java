@@ -35,6 +35,9 @@ public final class LzsInteraction {
   public double remainingZonePct;
   public double pathClearTicks;
   public boolean blockedByOpposingLiquidity;
+  public boolean opposingZoneConflict;
+  public double opposingZoneConflictDistanceTicks = Double.NaN;
+  public String opposingZoneConflictTag = "";
 
   public double score;
   public String reason = "";

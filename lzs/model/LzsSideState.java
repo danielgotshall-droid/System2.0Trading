@@ -14,6 +14,10 @@ public final class LzsSideState {
   public String lastEmittedZoneSig = "";
   public String lastFailureReason = "";
 
+  public double signalZoneLow = Double.NaN;
+  public double signalZoneHigh = Double.NaN;
+  public double signalExecRef = Double.NaN;
+
   public int lastRenderedBarIndex = -1;
   public String lastRenderSignature = "";
 
@@ -54,6 +58,9 @@ public final class LzsSideState {
     interaction.remainingZonePct = 0.0;
     interaction.pathClearTicks = 0.0;
     interaction.blockedByOpposingLiquidity = false;
+    interaction.opposingZoneConflict = false;
+    interaction.opposingZoneConflictDistanceTicks = Double.NaN;
+    interaction.opposingZoneConflictTag = "";
     interaction.score = 0.0;
     interaction.reason = "";
     interaction.debug = "";
@@ -65,5 +72,11 @@ public final class LzsSideState {
     lastEmittedZoneSig = zoneSig == null ? "" : zoneSig;
     lastEmittedTime = time;
     lastEmittedBarIndex = barIndex;
+  }
+
+  public void captureSignalSnapshot() {
+    signalZoneLow = candidate == null ? Double.NaN : candidate.zoneLow;
+    signalZoneHigh = candidate == null ? Double.NaN : candidate.zoneHigh;
+    signalExecRef = interaction == null ? Double.NaN : interaction.reversalRefPrice;
   }
 }

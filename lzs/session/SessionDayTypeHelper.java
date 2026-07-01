@@ -158,6 +158,8 @@ public final class SessionDayTypeHelper {
   }
 
   public static final class InitialBalanceContext {
+    public static final long RECENT_REGIME_WINDOW_MS = 30L * 60_000L;
+    public static final long MICRO_REGIME_WINDOW_MS = 10L * 60_000L;
     public int index;
     public int sessionStartIndex = -1;
     public int ibEndIndex = -1;
@@ -225,6 +227,28 @@ public final class SessionDayTypeHelper {
     public double impulseDistanceTicks = Double.NaN;
     public double impulseSpeedBars = Double.NaN;
     public boolean liquidationWarning;
+
+    public int recentBars;
+    public int recentClosesAboveIb;
+    public int recentClosesBelowIb;
+    public int recentClosesInsideIb;
+    public double recentClosesAboveIbPct = Double.NaN;
+    public double recentClosesBelowIbPct = Double.NaN;
+    public double recentClosesInsideIbPct = Double.NaN;
+    public int recentMidCrossCount;
+    public int recentFailedBreakCount;
+    public double recentOverlapRatio = Double.NaN;
+    public boolean recentReenteredIb;
+    public boolean currentInsideIb;
+    public boolean currentAboveIb;
+    public boolean currentBelowIb;
+    public double recentVwapSlopeTicks = Double.NaN;
+    public double initiativeRepairPct = Double.NaN;
+    public boolean trendUpAcceptanceFailed;
+    public boolean trendDownAcceptanceFailed;
+
+    public DayTypeState sessionArchetypeState = DayTypeState.UNKNOWN;
+    public DayTypeState liveRegimeState = DayTypeState.UNKNOWN;
     public int lookbackSessionsUsed;
     public boolean manualAidUsed;
 
@@ -272,6 +296,8 @@ public final class SessionDayTypeHelper {
 
   public static final class DayTypeResult {
     public DayTypeState state = DayTypeState.UNKNOWN;
+    public DayTypeState archetypeState = DayTypeState.UNKNOWN;
+    public DayTypeState liveState = DayTypeState.UNKNOWN;
 
     public boolean ibComplete;
 
@@ -334,6 +360,7 @@ public final class SessionDayTypeHelper {
     if (out.ibComplete) {
       populatePostIbStats(out, s, cfg);
       populateRegimeProxies(out, s, cfg);
+      populateLiveRegimeStats(out, s, cfg);
     }
     else {
       out.debugNotes.add("IB window not complete yet.");
@@ -356,7 +383,8 @@ public final class SessionDayTypeHelper {
     DayTypeFeatures f = extractFeatures(c, cfg);
     scoreFeatures(f);
     classify(c, f, out);
-    buildReasons(c, f, out);
+    applyLiveRegimeState(c, f, out, cfg);
+    buildReasons(c, f, out, cfg);
     buildDebug(c, f, out, cfg);
     return out;
   }
@@ -525,15 +553,84 @@ public final class SessionDayTypeHelper {
       out.state = DayTypeState.TRANSITION;
     }
 
-    out.summary = String.format(Locale.US, "%s | Conf %.1f", out.state, out.confidence);
+    out.archetypeState = out.state;
+    out.liveState = out.state;
+    c.sessionArchetypeState = out.archetypeState;
+    c.liveRegimeState = out.liveState;
+    out.summary = String.format(Locale.US, "ARCH %s | LIVE %s | Conf %.1f", out.archetypeState, out.liveState, out.confidence);
+  }
+
+
+  private static void applyLiveRegimeState(InitialBalanceContext c, DayTypeFeatures f, DayTypeResult out, DayTypeConfig cfg) {
+    DayTypeState live = out.archetypeState;
+
+    double recentTrendUpAcceptance = clamp01(
+        0.40 * c.recentClosesAboveIbPct +
+        0.30 * Math.max(0.0, normalizeTicks(c.recentVwapSlopeTicks, Math.max(cfg.valueMigrationMinTicks, MIN_STRUCTURAL_VWAP_DRIFT_TICKS))) +
+        0.30 * clamp01(1.0 - safe01(c.initiativeRepairPct)));
+
+    double recentTrendDownAcceptance = clamp01(
+        0.40 * c.recentClosesBelowIbPct +
+        0.30 * Math.max(0.0, normalizeTicks(-c.recentVwapSlopeTicks, Math.max(cfg.valueMigrationMinTicks, MIN_STRUCTURAL_VWAP_DRIFT_TICKS))) +
+        0.30 * clamp01(1.0 - safe01(c.initiativeRepairPct)));
+
+    double transitionFromUp = clamp01(
+        0.35 * safe01(c.initiativeRepairPct) +
+        0.20 * c.recentClosesInsideIbPct +
+        0.20 * (c.currentInsideIb ? 1.0 : 0.0) +
+        0.15 * Math.max(0.0, normalizeTicks(-c.recentVwapSlopeTicks, Math.max(cfg.valueMigrationMinTicks, MIN_STRUCTURAL_VWAP_DRIFT_TICKS))) +
+        0.10 * Math.min(1.0, c.recentMidCrossCount / (double)Math.max(2, cfg.rotationThreshold)));
+
+    double transitionFromDown = clamp01(
+        0.35 * safe01(c.initiativeRepairPct) +
+        0.20 * c.recentClosesInsideIbPct +
+        0.20 * (c.currentInsideIb ? 1.0 : 0.0) +
+        0.15 * Math.max(0.0, normalizeTicks(c.recentVwapSlopeTicks, Math.max(cfg.valueMigrationMinTicks, MIN_STRUCTURAL_VWAP_DRIFT_TICKS))) +
+        0.10 * Math.min(1.0, c.recentMidCrossCount / (double)Math.max(2, cfg.rotationThreshold)));
+
+    if (out.archetypeState == DayTypeState.TREND_UP) {
+      c.trendUpAcceptanceFailed = c.acceptedAboveIb && (c.currentInsideIb || c.currentBelowIb || c.recentClosesInsideIbPct >= 0.35 || safe01(c.initiativeRepairPct) >= 0.50);
+      if (c.currentBelowIb && c.recentClosesBelowIbPct >= 0.25) {
+        live = c.recentMidCrossCount >= Math.max(2, cfg.rotationThreshold) ? DayTypeState.RANGE_VOLATILE : DayTypeState.RANGE_BALANCED;
+      }
+      else if (transitionFromUp >= 0.55 || recentTrendUpAcceptance < 0.30 || c.trendUpAcceptanceFailed) {
+        live = c.recentMidCrossCount >= Math.max(2, cfg.rotationThreshold) ? DayTypeState.RANGE_VOLATILE : DayTypeState.TRANSITION;
+      }
+    }
+    else if (out.archetypeState == DayTypeState.TREND_DOWN) {
+      c.trendDownAcceptanceFailed = c.acceptedBelowIb && (c.currentInsideIb || c.currentAboveIb || c.recentClosesInsideIbPct >= 0.35 || safe01(c.initiativeRepairPct) >= 0.50);
+      if (c.currentAboveIb && c.recentClosesAboveIbPct >= 0.25) {
+        live = c.recentMidCrossCount >= Math.max(2, cfg.rotationThreshold) ? DayTypeState.RANGE_VOLATILE : DayTypeState.RANGE_BALANCED;
+      }
+      else if (transitionFromDown >= 0.55 || recentTrendDownAcceptance < 0.30 || c.trendDownAcceptanceFailed) {
+        live = c.recentMidCrossCount >= Math.max(2, cfg.rotationThreshold) ? DayTypeState.RANGE_VOLATILE : DayTypeState.TRANSITION;
+      }
+    }
+    else if (out.archetypeState == DayTypeState.RANGE_BALANCED || out.archetypeState == DayTypeState.RANGE_VOLATILE) {
+      if (recentTrendUpAcceptance >= 0.75 && c.recentClosesAboveIbPct >= 0.60 && !c.currentInsideIb) {
+        live = DayTypeState.TREND_UP;
+      }
+      else if (recentTrendDownAcceptance >= 0.75 && c.recentClosesBelowIbPct >= 0.60 && !c.currentInsideIb) {
+        live = DayTypeState.TREND_DOWN;
+      }
+    }
+
+    out.liveState = live;
+    out.state = live;
+    c.liveRegimeState = live;
+    out.summary = String.format(Locale.US, "ARCH %s | LIVE %s | Conf %.1f", out.archetypeState, out.liveState, out.confidence);
   }
 
   private static int cfgLikeVolatileThreshold(InitialBalanceContext c) {
     return Math.max(4, c.midCrossCount >= 3 ? 3 : 4);
   }
 
-  private static void buildReasons(InitialBalanceContext c, DayTypeFeatures f, DayTypeResult out) {
-    switch (out.state) {
+  private static void buildReasons(InitialBalanceContext c, DayTypeFeatures f, DayTypeResult out, DayTypeConfig cfg) {
+    if (out.liveState != out.archetypeState && out.archetypeState != DayTypeState.UNKNOWN) {
+      out.reasons.add("Archetype " + out.archetypeState + " degraded to live " + out.liveState);
+    }
+
+    switch (out.liveState) {
       case TREND_UP:
         if (f.smallIbScore > 0.5) out.reasons.add("Small IB vs recent history");
         if (f.extensionUpScore > 0.45) out.reasons.add("Post-IB upside extension");
@@ -577,6 +674,9 @@ public final class SessionDayTypeHelper {
 
       case TRANSITION:
         out.reasons.add("Mixed evidence");
+        if (c.recentReenteredIb) out.reasons.add("Recent reentry back into IB");
+        if (safe01(c.initiativeRepairPct) >= 0.40) out.reasons.add("Initiative area being repaired");
+        if (!Double.isNaN(c.recentVwapSlopeTicks) && Math.abs(c.recentVwapSlopeTicks) >= Math.max(cfg.valueMigrationMinTicks, MIN_STRUCTURAL_VWAP_DRIFT_TICKS) * 0.5) out.reasons.add("Recent value migration changed direction");
         if (Math.max(out.trendUpScore, out.trendDownScore) > 0.0) out.reasons.add("Directional evidence present but not dominant");
         if (out.rangeScore > 0.0) out.reasons.add("Range evidence still competing");
         if (c.failedBreakCount > 0) out.reasons.add("Failed early breakouts");
@@ -633,11 +733,13 @@ public final class SessionDayTypeHelper {
         f.liquidationScore,
         c.normalizedIbVolume);
 
+    String live = String.format(Locale.US, "ARCH=%s | LIVE=%s | recentAbove=%.2f | recentBelow=%.2f | recentInside=%.2f | recentSlope=%.1f | repair=%.2f", c.sessionArchetypeState, c.liveRegimeState, c.recentClosesAboveIbPct, c.recentClosesBelowIbPct, c.recentClosesInsideIbPct, c.recentVwapSlopeTicks, c.initiativeRepairPct);
+
     if (c.debugNotes.isEmpty()) {
-      out.debugText = ibWindow + "\n" + structure + "\n" + flow;
+      out.debugText = ibWindow + "\n" + structure + "\n" + flow + "\n" + live;
     }
     else {
-      out.debugText = ibWindow + "\n" + structure + "\n" + flow + "\n" + join(c.debugNotes, " | ");
+      out.debugText = ibWindow + "\n" + structure + "\n" + flow + "\n" + live + "\n" + join(c.debugNotes, " | ");
     }
   }
 
@@ -960,6 +1062,93 @@ public final class SessionDayTypeHelper {
     boolean poorAcceptance = !out.acceptedAboveIb && !out.acceptedBelowIb;
     boolean quickGiveback = !Double.isNaN(out.pullbackFromExtremeTicks) && out.pullbackFromExtremeTicks >= Math.max(2.0, 0.50 * Math.max(out.firstExtensionUpTicks, out.firstExtensionDownTicks));
     out.liquidationWarning = fastImpulse && poorAcceptance && (out.rotationCount >= 1 || quickGiveback);
+  }
+
+
+  private static void populateLiveRegimeStats(InitialBalanceContext out, DataSeries s, DayTypeConfig cfg) {
+    int postStart = out.ibEndIndex + 1;
+    if (postStart > out.index) return;
+
+    long recentStartTime = out.currentBarTime - InitialBalanceContext.RECENT_REGIME_WINDOW_MS;
+    long priorStartTime = recentStartTime - InitialBalanceContext.RECENT_REGIME_WINDOW_MS;
+
+    int recentBars = 0;
+    int above = 0;
+    int below = 0;
+    int inside = 0;
+    int midCrosses = 0;
+    int failedBreaks = 0;
+    double overlapSum = 0.0;
+    int overlapCount = 0;
+    double recentVol = 0.0, recentPv = 0.0;
+    double priorVol = 0.0, priorPv = 0.0;
+    double prevClose = Double.NaN;
+    double tol = cfg.reentryToleranceTicks * out.tickSize;
+
+    for (int i = postStart; i <= out.index; i++) {
+      long t = s.getStartTime(i);
+      double c = s.getClose(i);
+      if (!Double.isNaN(prevClose) && t >= recentStartTime) {
+        if ((prevClose <= out.ibMid && c > out.ibMid) || (prevClose >= out.ibMid && c < out.ibMid)) midCrosses++;
+      }
+      prevClose = c;
+
+      if (t >= recentStartTime) {
+        recentBars++;
+        if (c > out.ibHigh + tol) above++;
+        else if (c < out.ibLow - tol) below++;
+        else inside++;
+
+        if (i > postStart) {
+          double overlap = Math.max(0.0, Math.min(s.getHigh(i), s.getHigh(i - 1)) - Math.max(s.getLow(i), s.getLow(i - 1)));
+          double union = Math.max(s.getHigh(i), s.getHigh(i - 1)) - Math.min(s.getLow(i), s.getLow(i - 1));
+          if (union > 1e-9) { overlapSum += overlap / union; overlapCount++; }
+        }
+
+        boolean failedUp = s.getHigh(i) > out.ibHigh + tol && c < out.ibHigh - tol * 0.25;
+        boolean failedDn = s.getLow(i) < out.ibLow - tol && c > out.ibLow + tol * 0.25;
+        if (failedUp || failedDn) failedBreaks++;
+
+        double v = safeVolume(s, i);
+        recentVol += v; recentPv += typicalPrice(s, i) * v;
+      }
+      else if (t >= priorStartTime) {
+        double v = safeVolume(s, i);
+        priorVol += v; priorPv += typicalPrice(s, i) * v;
+      }
+    }
+
+    out.recentBars = recentBars;
+    out.recentClosesAboveIb = above;
+    out.recentClosesBelowIb = below;
+    out.recentClosesInsideIb = inside;
+    double denom = Math.max(1.0, recentBars);
+    out.recentClosesAboveIbPct = above / denom;
+    out.recentClosesBelowIbPct = below / denom;
+    out.recentClosesInsideIbPct = inside / denom;
+    out.recentMidCrossCount = midCrosses;
+    out.recentFailedBreakCount = failedBreaks;
+    out.recentOverlapRatio = overlapCount > 0 ? overlapSum / overlapCount : 0.0;
+    out.currentInsideIb = out.lastPrice >= out.ibLow - tol && out.lastPrice <= out.ibHigh + tol;
+    out.currentAboveIb = out.lastPrice > out.ibHigh + tol;
+    out.currentBelowIb = out.lastPrice < out.ibLow - tol;
+    out.recentReenteredIb = out.recentClosesInsideIbPct >= 0.25 && (out.acceptedAboveIb || out.acceptedBelowIb);
+
+    double recentVwap = recentVol > 0.0 ? recentPv / recentVol : out.lastPrice;
+    double priorVwap = priorVol > 0.0 ? priorPv / priorVol : recentVwap;
+    out.recentVwapSlopeTicks = out.tickSize > 0.0 ? (recentVwap - priorVwap) / out.tickSize : 0.0;
+
+    if (out.dominantDirection > 0 && out.sessionHigh > out.ibHigh + tol) {
+      out.initiativeRepairPct = clamp01((out.sessionHigh - out.lastPrice) / Math.max(out.tickSize, out.sessionHigh - out.ibHigh));
+    }
+    else if (out.dominantDirection < 0 && out.sessionLow < out.ibLow - tol) {
+      out.initiativeRepairPct = clamp01((out.lastPrice - out.sessionLow) / Math.max(out.tickSize, out.ibLow - out.sessionLow));
+    }
+    else {
+      out.initiativeRepairPct = 0.0;
+    }
+
+    out.debugNotes.add(String.format(Locale.US, "LiveReg bars=%d above=%.2f below=%.2f inside=%.2f vwapSlope=%.1f repair=%.2f", recentBars, out.recentClosesAboveIbPct, out.recentClosesBelowIbPct, out.recentClosesInsideIbPct, out.recentVwapSlopeTicks, out.initiativeRepairPct));
   }
 
   private static int findFirstBarAtOrAfter(DataSeries s, int maxIndex, long targetTime) {

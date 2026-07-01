@@ -4,8 +4,11 @@ import study_examples.lzs.session.SessionDayTypeHelper.DayTypeState;
 
 public final class LzsDayTypeContext {
   public DayTypeState state = DayTypeState.UNKNOWN;
+  public DayTypeState archetypeState = DayTypeState.UNKNOWN;
+  public DayTypeState liveState = DayTypeState.UNKNOWN;
   public boolean ibComplete;
   public boolean ready;
+  public boolean applicable;
   public double confidence = Double.NaN;
   public double trendUpScore = Double.NaN;
   public double trendDownScore = Double.NaN;
@@ -23,8 +26,11 @@ public final class LzsDayTypeContext {
 
   public void reset() {
     state = DayTypeState.UNKNOWN;
+    archetypeState = DayTypeState.UNKNOWN;
+    liveState = DayTypeState.UNKNOWN;
     ibComplete = false;
     ready = false;
+    applicable = false;
     confidence = Double.NaN;
     trendUpScore = Double.NaN;
     trendDownScore = Double.NaN;
@@ -42,6 +48,10 @@ public final class LzsDayTypeContext {
   }
 
   public boolean hasSignal() {
-    return ready && state != DayTypeState.UNKNOWN;
+    return applicable && state != DayTypeState.UNKNOWN;
+  }
+
+  public boolean isApplicable() {
+    return applicable;
   }
 }

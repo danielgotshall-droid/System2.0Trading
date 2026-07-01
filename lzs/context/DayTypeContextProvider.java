@@ -62,13 +62,19 @@ public final class DayTypeContextProvider {
 
     cached.reset();
     cached.state = helperRes.state;
+    cached.archetypeState = helperRes.archetypeState;
+    cached.liveState = helperRes.liveState;
     cached.ibComplete = helperRes.ibComplete;
-    cached.manualAidUsed = helperCtx.manualAidUsed;
+    boolean manualNormConfigured = cfg.useManualDayTypeAid
+        && !Double.isNaN(cfg.manualRecentMedianIbRange)
+        && !Double.isNaN(cfg.manualAtrLikeRange);
+    cached.manualAidUsed = helperCtx.manualAidUsed || manualNormConfigured;
     cached.lookbackSessionsUsed = helperCtx.lookbackSessionsUsed;
     cached.historicalNormReady = !Double.isNaN(helperCtx.recentMedianIbRange)
         && !Double.isNaN(helperCtx.atrLikeRange)
-        && (helperCtx.lookbackSessionsUsed >= cfg.dayTypeRecentLookbackSessions || helperCtx.manualAidUsed);
+        && (helperCtx.lookbackSessionsUsed >= cfg.dayTypeRecentLookbackSessions || helperCtx.manualAidUsed || manualNormConfigured);
     cached.ready = helperRes.ibComplete && cached.historicalNormReady;
+    cached.applicable = cached.ready;
     cached.confidence = helperRes.confidence;
     cached.trendUpScore = helperRes.trendUpScore;
     cached.trendDownScore = helperRes.trendDownScore;
@@ -81,10 +87,12 @@ public final class DayTypeContextProvider {
     cached.debugText = helperRes.debugText == null ? "" : helperRes.debugText;
     if (!cached.historicalNormReady) {
       cached.debugText = cached.debugText + (cached.debugText.length() == 0 ? "" : "\n")
-          + "DT historical normalization incomplete";
+          + "DT historical normalization incomplete"
+          + " [Lkb " + helperCtx.lookbackSessionsUsed + "/" + cfg.dayTypeRecentLookbackSessions + "]"
+          + (manualNormConfigured ? " [ManualConfigured]" : " [ManualMissing]");
     }
 
-    switch (helperRes.state) {
+    switch (helperRes.liveState) {
       case TREND_UP:
         cached.supportsLongContinuation = helperRes.confidence >= cfg.dayTypeMinConfidence;
         break;

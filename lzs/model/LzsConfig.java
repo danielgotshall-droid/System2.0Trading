@@ -33,6 +33,8 @@ public final class LzsConfig {
   public int minOpenPathTicks = 0;
   public double maxOpposingBlockInPath = 1000.0;
   public int attractionPenaltyLookaheadTicks = 0;
+  public int opposingZoneConflictMode = 0; // 0=Off, 1=Annotate, 2=Block
+  public int opposingZoneConflictMaxDistanceTicks = 12;
 
   public int minBarsBetweenSameSideSignals = 0;
   public int minMsBetweenSameZoneSignals = 1500;
